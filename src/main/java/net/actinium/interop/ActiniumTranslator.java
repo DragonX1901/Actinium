@@ -138,11 +138,16 @@ public final class ActiniumTranslator {
             return;
         }
 
+        int vkIndexType = indexType(type);
+        if (vkIndexType < 0) {
+            reportBadIndexType(type);
+            return;
+        }
         if (!bindPipeline(cmd, mode)) {
             return;
         }
         bindVertexInputs(cmd);
-        vkCmdBindIndexBuffer(cmd, ebo.vkBuffer, indicesOffset, indexType(type));
+        vkCmdBindIndexBuffer(cmd, ebo.vkBuffer, indicesOffset, vkIndexType);
         applyDynamicState(cmd);
         vkCmdDrawIndexed(cmd, count, 1, 0, 0, 0);
         drawsThisFrame++;
@@ -158,11 +163,16 @@ public final class ActiniumTranslator {
         if (ebo == null) {
             return;
         }
+        int vkIndexType = indexType(type);
+        if (vkIndexType < 0) {
+            reportBadIndexType(type);
+            return;
+        }
         if (!bindPipeline(cmd, mode)) {
             return;
         }
         bindVertexInputs(cmd);
-        vkCmdBindIndexBuffer(cmd, ebo.vkBuffer, indicesOffset, indexType(type));
+        vkCmdBindIndexBuffer(cmd, ebo.vkBuffer, indicesOffset, vkIndexType);
         applyDynamicState(cmd);
         vkCmdDrawIndexed(cmd, count, instanceCount, 0, 0, 0);
         drawsThisFrame++;
@@ -330,15 +340,33 @@ public final class ActiniumTranslator {
         return cmd;
     }
 
+    /** @return the Vulkan index type, or -1 when the GL type has no equivalent. */
     private static int indexType(int glType) {
         return switch (glType) {
             case GLConstants.GL_UNSIGNED_SHORT -> VK_INDEX_TYPE_UINT16;
             case GLConstants.GL_UNSIGNED_INT -> VK_INDEX_TYPE_UINT32;
-            // GL_UNSIGNED_BYTE indices exist in GL and do not exist in Vulkan; the upload
-            // path widens them to 16-bit rather than failing the draw.
-            case GLConstants.GL_UNSIGNED_BYTE -> VK_INDEX_TYPE_UINT16;
-            default -> throw new IllegalArgumentException("Bad index type 0x" + Integer.toHexString(glType));
+            // GL_UNSIGNED_BYTE indices exist in GL and have no Vulkan equivalent. Reporting
+            // them as UINT16 reads each pair of 8-bit indices as one 16-bit index, which draws
+            // garbage geometry from out-of-range values. Widening the buffer on upload is the
+            // real answer; until that exists, refuse the draw rather than corrupt it.
+            case GLConstants.GL_UNSIGNED_BYTE -> -1;
+            default -> -1;
         };
+    }
+
+    private boolean reportedBadIndexType;
+
+    /**
+     * GL_UNSIGNED_BYTE indices have no Vulkan equivalent. Reporting them as UINT16 reads each
+     * pair of 8-bit indices as one 16-bit index and draws garbage from out-of-range values, so
+     * the draw is skipped instead. Widening the buffer on upload is the real answer.
+     */
+    private void reportBadIndexType(int glType) {
+        if (!reportedBadIndexType) {
+            reportedBadIndexType = true;
+            LOGGER.warn("Index type 0x{} has no Vulkan equivalent; draws using it are skipped",
+                    Integer.toHexString(glType));
+        }
     }
 
     static int topology(int glMode) {

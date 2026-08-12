@@ -8,6 +8,8 @@ import org.lwjgl.util.vma.Vma;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
 import org.lwjgl.vulkan.VkBufferCreateInfo;
 import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
@@ -31,6 +33,8 @@ import static org.lwjgl.vulkan.VK10.*;
  */
 final class UniformRing {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Uniforms");
+
     private static final int DEFAULT_SIZE = 8 * 1024 * 1024;
 
     private static long buffer = VK_NULL_HANDLE;
@@ -39,6 +43,7 @@ final class UniformRing {
     private static int capacity;
     private static int offset;
     private static int alignment = 256; // conservative until the device tells us otherwise
+    private static boolean overflowReported;
 
     private UniformRing() {
     }
@@ -52,15 +57,23 @@ final class UniformRing {
         return buffer;
     }
 
-    /** @return the byte offset the data was written at, for use as a dynamic descriptor offset. */
+    /**
+     * @return the byte offset written at, for use as a dynamic descriptor offset, or -1 when
+     *         the ring is exhausted and the draw must be skipped
+     */
     static int write(ByteBuffer data) {
         int size = data.remaining();
         int aligned = (offset + alignment - 1) & ~(alignment - 1);
         if (aligned + size > capacity) {
-            // Wrapping mid-frame overwrites data a recorded draw still points at. Better to
-            // clamp and log than to render nondeterministic garbage.
-            throw new IllegalStateException("Uniform ring overflow: " + capacity
-                    + " bytes exhausted. Raise actinium.uniformRingBytes.");
+            // Wrapping mid-frame would overwrite data a recorded draw still points at, so the
+            // write is refused. The caller skips the draw; throwing here would escape through
+            // ActiniumGL into mod code and take the frame with it.
+            if (!overflowReported) {
+                overflowReported = true;
+                LOGGER.error("Uniform ring exhausted at {} bytes. Draws are being skipped; "
+                        + "raise actinium.uniformRingBytes.", capacity);
+            }
+            return -1;
         }
         MemoryUtil.memCopy(MemoryUtil.memAddress(data), MemoryUtil.memAddress(mapped) + aligned, size);
         offset = aligned + size;

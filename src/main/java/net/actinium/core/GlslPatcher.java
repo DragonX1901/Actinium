@@ -113,7 +113,13 @@ public final class GlslPatcher {
                 String type = e.getValue()[0];
                 String array = e.getValue()[1];
                 int count = array == null ? 1 : Integer.parseInt(array.replaceAll("\\D+", ""));
-                int size = std140Size(type) * count;
+                // std140 rounds every array element's stride up to 16 bytes, so an array of
+                // float occupies 16 bytes per entry rather than 4. Using the packed size puts
+                // every member declared after it at an offset the compiled shader disagrees
+                // with, and those uniforms then read neighbouring data.
+                int elementSize = array == null ? std140Size(type)
+                        : (std140Size(type) + 15) / 16 * 16;
+                int size = elementSize * count;
                 int align = std140Alignment(type);
                 offset = align(offset, align);
                 members.add(new UniformMember(type, e.getKey(), count, offset, size));

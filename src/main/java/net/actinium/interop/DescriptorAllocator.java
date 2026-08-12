@@ -78,9 +78,13 @@ final class DescriptorAllocator {
             VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(2, stack);
 
             if (program.uniformStaging != null) {
+                int uniformOffset = UniformRing.write(program.uniformStaging);
+                if (uniformOffset < 0) {
+                    return VK_NULL_HANDLE; // ring exhausted; caller skips the draw
+                }
                 VkDescriptorBufferInfo.Buffer bufferInfo = VkDescriptorBufferInfo.calloc(1, stack)
                         .buffer(UniformRing.currentBuffer())
-                        .offset(UniformRing.write(program.uniformStaging))
+                        .offset(uniformOffset)
                         .range(program.uniformStaging.remaining());
                 writes.get(writeCount++)
                         .sType$Default()

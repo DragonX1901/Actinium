@@ -98,6 +98,17 @@ public class ActiniumOptionsScreen extends Screen {
         }
         contentHeight = y + scroll - CONTENT_Y;
 
+        // Clamp after measuring. Resizing the window or switching to a shorter page can leave
+        // scroll past the end, and mouseScrolled refuses to act once the content fits, so the
+        // rows would stay pushed off the top with no way back.
+        int viewport = height - BUTTON_BAR_HEIGHT - CONTENT_Y;
+        int maxScroll = Math.max(0, contentHeight - viewport);
+        if (scroll > maxScroll) {
+            scroll = maxScroll;
+            rebuildRows();
+            return;
+        }
+
         int buttonY = height - BUTTON_BAR_HEIGHT + 6;
         int buttonWidth = 64;
         int gap = 6;
@@ -120,6 +131,11 @@ public class ActiniumOptionsScreen extends Screen {
         buttons.add(doneButton);
 
         updateButtonStates();
+    }
+
+    /** Re-runs layout after a scroll clamp, without recursing through init(). */
+    private void rebuildRows() {
+        rebuildWidgets();
     }
 
     @SuppressWarnings("unchecked")

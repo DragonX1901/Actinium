@@ -45,17 +45,29 @@ public final class GLRedirectTransformer {
     private static final String TARGET_OWNER = "net/actinium/interop/ActiniumGL";
     private static final String GL_PACKAGE = "org/lwjgl/opengl/";
 
-    /** Only these methods have translations; everything else is left pointing at real GL. */
-    private static final Set<String> REDIRECTED = Set.of(
-            "glBindTexture", "glActiveTexture", "glGenTextures", "glTexParameteri", "glTexImage2D",
-            "glGenBuffers", "glBindBuffer", "glBufferData", "glBufferSubData",
-            "glGenVertexArrays", "glBindVertexArray", "glVertexAttribPointer",
-            "glEnableVertexAttribArray", "glDisableVertexAttribArray",
-            "glEnable", "glDisable", "glBlendFunc", "glBlendFuncSeparate",
-            "glDepthFunc", "glDepthMask", "glColorMask", "glCullFace",
-            "glViewport", "glScissor", "glUseProgram", "glBindFramebuffer",
-            "glDrawArrays", "glDrawElements", "glDrawElementsInstanced",
-            "glBegin", "glEnd", "glGenLists", "glCallList");
+    /**
+     * Signatures {@link ActiniumGL} actually implements, as {@code name+descriptor}.
+     *
+     * <p>Derived from the class rather than hand-listed, and keyed on the descriptor as well as
+     * the name. GL overloads names heavily: {@code glGenTextures()} and
+     * {@code glGenTextures(int[])}, {@code glBufferData(int, ByteBuffer, int)} and
+     * {@code glBufferData(int, long, int)}, {@code glTexImage2D} with a buffer and with an
+     * address. Matching on the name alone rewrites the owner of an overload that has no
+     * counterpart here, and the mod dies with NoSuchMethodError at its first draw. Anything
+     * without an exact match is left pointing at real GL, which is the correct fallback.
+     */
+    private static final Set<String> REDIRECTED = implementedSignatures();
+
+    private static Set<String> implementedSignatures() {
+        Set<String> signatures = new java.util.HashSet<>();
+        for (java.lang.reflect.Method method : ActiniumGL.class.getDeclaredMethods()) {
+            if (java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                    && java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
+                signatures.add(method.getName() + org.objectweb.asm.Type.getMethodDescriptor(method));
+            }
+        }
+        return signatures;
+    }
 
     private static final Set<String> EXCLUDED_PREFIXES = Set.of(
             "net/minecraft/", "com/mojang/", "net/neoforged/", "org/lwjgl/", "net/actinium/");
@@ -112,7 +124,7 @@ public final class GLRedirectTransformer {
                                                 String methodDescriptor, boolean isInterface) {
                         if (opcode == Opcodes.INVOKESTATIC
                                 && owner.startsWith(GL_PACKAGE)
-                                && REDIRECTED.contains(methodName)) {
+                                && REDIRECTED.contains(methodName + methodDescriptor)) {
                             hits[0]++;
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, TARGET_OWNER,
                                     methodName, methodDescriptor, false);

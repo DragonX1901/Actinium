@@ -191,7 +191,10 @@ final class PipelineBuilder {
             int divisor = 0;
             for (ActiniumGLState.VertexAttrib a : vao.attribs) {
                 if (a != null && a.enabled && a.buffer == bindingBuffers.get(i)) {
-                    stride = a.stride;
+                    // GL reads stride 0 as "tightly packed, derive it from size and type".
+                    // Vulkan reads stride 0 as "every vertex reads the same bytes", which
+                    // renders one vertex smeared across the whole draw.
+                    stride = a.stride != 0 ? a.stride : elementSize(a);
                     divisor = a.divisor;
                     break;
                 }
@@ -222,30 +225,91 @@ final class PipelineBuilder {
      * by 255, UINT does not.
      */
     private static int vertexFormat(ActiniumGLState.VertexAttrib a) {
+        int size = Math.clamp(a.size, 1, 4);
         return switch (a.type) {
-            case GLConstants.GL_FLOAT -> switch (a.size) {
+            case GLConstants.GL_FLOAT -> switch (size) {
                 case 1 -> VK_FORMAT_R32_SFLOAT;
                 case 2 -> VK_FORMAT_R32G32_SFLOAT;
                 case 3 -> VK_FORMAT_R32G32B32_SFLOAT;
                 default -> VK_FORMAT_R32G32B32A32_SFLOAT;
             };
             case GLConstants.GL_UNSIGNED_BYTE -> a.normalized
-                    ? (a.size == 4 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8_UNORM)
-                    : (a.size == 4 ? VK_FORMAT_R8G8B8A8_UINT : VK_FORMAT_R8G8_UINT);
+                    ? switch (size) {
+                        case 1 -> VK_FORMAT_R8_UNORM;
+                        case 2 -> VK_FORMAT_R8G8_UNORM;
+                        case 3 -> VK_FORMAT_R8G8B8_UNORM;
+                        default -> VK_FORMAT_R8G8B8A8_UNORM;
+                    }
+                    : switch (size) {
+                        case 1 -> VK_FORMAT_R8_UINT;
+                        case 2 -> VK_FORMAT_R8G8_UINT;
+                        case 3 -> VK_FORMAT_R8G8B8_UINT;
+                        default -> VK_FORMAT_R8G8B8A8_UINT;
+                    };
             case GLConstants.GL_BYTE -> a.normalized
-                    ? (a.size == 4 ? VK_FORMAT_R8G8B8A8_SNORM : VK_FORMAT_R8G8_SNORM)
-                    : (a.size == 4 ? VK_FORMAT_R8G8B8A8_SINT : VK_FORMAT_R8G8_SINT);
-            case GLConstants.GL_SHORT -> a.normalized
-                    ? (a.size == 2 ? VK_FORMAT_R16G16_SNORM : VK_FORMAT_R16G16B16A16_SNORM)
-                    : (a.size == 2 ? VK_FORMAT_R16G16_SINT : VK_FORMAT_R16G16B16A16_SINT);
+                    ? switch (size) {
+                        case 1 -> VK_FORMAT_R8_SNORM;
+                        case 2 -> VK_FORMAT_R8G8_SNORM;
+                        case 3 -> VK_FORMAT_R8G8B8_SNORM;
+                        default -> VK_FORMAT_R8G8B8A8_SNORM;
+                    }
+                    : switch (size) {
+                        case 1 -> VK_FORMAT_R8_SINT;
+                        case 2 -> VK_FORMAT_R8G8_SINT;
+                        case 3 -> VK_FORMAT_R8G8B8_SINT;
+                        default -> VK_FORMAT_R8G8B8A8_SINT;
+                    };
             case GLConstants.GL_UNSIGNED_SHORT -> a.normalized
-                    ? (a.size == 2 ? VK_FORMAT_R16G16_UNORM : VK_FORMAT_R16G16B16A16_UNORM)
-                    : (a.size == 2 ? VK_FORMAT_R16G16_UINT : VK_FORMAT_R16G16B16A16_UINT);
-            case GLConstants.GL_INT -> a.size == 1 ? VK_FORMAT_R32_SINT : VK_FORMAT_R32G32B32A32_SINT;
-            case GLConstants.GL_UNSIGNED_INT -> a.size == 1 ? VK_FORMAT_R32_UINT : VK_FORMAT_R32G32B32A32_UINT;
+                    ? switch (size) {
+                        case 1 -> VK_FORMAT_R16_UNORM;
+                        case 2 -> VK_FORMAT_R16G16_UNORM;
+                        case 3 -> VK_FORMAT_R16G16B16_UNORM;
+                        default -> VK_FORMAT_R16G16B16A16_UNORM;
+                    }
+                    : switch (size) {
+                        case 1 -> VK_FORMAT_R16_UINT;
+                        case 2 -> VK_FORMAT_R16G16_UINT;
+                        case 3 -> VK_FORMAT_R16G16B16_UINT;
+                        default -> VK_FORMAT_R16G16B16A16_UINT;
+                    };
+            case GLConstants.GL_SHORT -> a.normalized
+                    ? switch (size) {
+                        case 1 -> VK_FORMAT_R16_SNORM;
+                        case 2 -> VK_FORMAT_R16G16_SNORM;
+                        case 3 -> VK_FORMAT_R16G16B16_SNORM;
+                        default -> VK_FORMAT_R16G16B16A16_SNORM;
+                    }
+                    : switch (size) {
+                        case 1 -> VK_FORMAT_R16_SINT;
+                        case 2 -> VK_FORMAT_R16G16_SINT;
+                        case 3 -> VK_FORMAT_R16G16B16_SINT;
+                        default -> VK_FORMAT_R16G16B16A16_SINT;
+                    };
+            case GLConstants.GL_INT -> switch (size) {
+                case 1 -> VK_FORMAT_R32_SINT;
+                case 2 -> VK_FORMAT_R32G32_SINT;
+                case 3 -> VK_FORMAT_R32G32B32_SINT;
+                default -> VK_FORMAT_R32G32B32A32_SINT;
+            };
+            case GLConstants.GL_UNSIGNED_INT -> switch (size) {
+                case 1 -> VK_FORMAT_R32_UINT;
+                case 2 -> VK_FORMAT_R32G32_UINT;
+                case 3 -> VK_FORMAT_R32G32B32_UINT;
+                default -> VK_FORMAT_R32G32B32A32_UINT;
+            };
             default -> throw new IllegalArgumentException(
                     "Unsupported vertex attribute type 0x" + Integer.toHexString(a.type));
         };
+    }
+
+    /** Bytes one attribute occupies, used to derive a stride GL left implicit. */
+    private static int elementSize(ActiniumGLState.VertexAttrib a) {
+        int componentBytes = switch (a.type) {
+            case GLConstants.GL_BYTE, GLConstants.GL_UNSIGNED_BYTE -> 1;
+            case GLConstants.GL_SHORT, GLConstants.GL_UNSIGNED_SHORT -> 2;
+            default -> 4;
+        };
+        return Math.clamp(a.size, 1, 4) * componentBytes;
     }
 
     private static int compareOp(int glFunc) {

@@ -403,6 +403,9 @@ public final class ActiniumGLState {
     }
 
     public void vertexAttribPointer(int index, int size, int type, boolean normalized, int stride, long offset) {
+        if (outOfRange(index, "glVertexAttribPointer")) {
+            return;
+        }
         GLVertexArray vao = vertexArrays.get(boundVertexArray);
         if (vao == null) {
             LOGGER.warn("glVertexAttribPointer with no VAO bound; call ignored");
@@ -419,6 +422,9 @@ public final class ActiniumGLState {
     }
 
     public void enableVertexAttribArray(int index, boolean enabled) {
+        if (outOfRange(index, "glEnableVertexAttribArray")) {
+            return;
+        }
         GLVertexArray vao = vertexArrays.get(boundVertexArray);
         if (vao == null) {
             return;
@@ -426,6 +432,20 @@ public final class ActiniumGLState {
         VertexAttrib attrib = vao.attribs[index] != null ? vao.attribs[index] : (vao.attribs[index] = new VertexAttrib());
         attrib.enabled = enabled;
         generation++;
+    }
+
+    /**
+     * Real GL raises {@code GL_INVALID_VALUE} for an attribute index past the limit and carries
+     * on. Indexing the array directly would instead throw out of the redirected call and take
+     * the render thread with it. A negative index is the common case: an unresolved
+     * {@code glGetAttribLocation} returns -1 and mods pass it straight through.
+     */
+    private boolean outOfRange(int index, String call) {
+        if (index >= 0 && index < MAX_VERTEX_ATTRIBS) {
+            return false;
+        }
+        LOGGER.warn("{}(index={}) out of range; ignored as GL_INVALID_VALUE would be", call, index);
+        return true;
     }
 
     // ------------------------------------------------------------------
@@ -528,6 +548,11 @@ public final class ActiniumGLState {
                 hash = hash * 31;
                 continue;
             }
+            // The source buffer decides which Vulkan binding an attribute lands in, so two
+            // VAOs that describe identical attributes but group them across buffers differently
+            // need different pipelines. Leaving it out let the second reuse the first's cached
+            // pipeline and read from the wrong buffer.
+            hash = hash * 31 + a.buffer;
             hash = hash * 31 + a.size;
             hash = hash * 31 + a.type;
             hash = hash * 31 + a.stride;
