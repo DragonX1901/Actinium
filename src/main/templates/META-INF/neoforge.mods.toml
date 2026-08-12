@@ -1,0 +1,42 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = '''${mod_description}'''
+
+# The Window mixin has to apply before Minecraft creates its OpenGL context, so this config
+# must be declared here rather than discovered later.
+[[mixins]]
+config = "${mod_id}.mixins.json"
+
+[[accessTransformers]]
+file = "META-INF/accesstransformer.cfg"
+
+[[dependencies."${mod_id}"]]
+modId = "neoforge"
+type = "required"
+versionRange = "${neo_version_range}"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies."${mod_id}"]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "CLIENT"
+
+# Actinium replaces the OpenGL backend outright. Declaring an incompatibility with mods that
+# assume a live GL context is more honest than letting them crash three minutes into a world.
+#[[dependencies."${mod_id}"]]
+#modId = "oculus"
+#type = "incompatible"
+#reason = "Shader pack mods require a real OpenGL context; run Actinium in BRIDGE mode instead."
+#versionRange = "[0,)"
+#ordering = "NONE"
+#side = "CLIENT"
