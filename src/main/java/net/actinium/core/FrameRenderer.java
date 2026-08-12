@@ -1,0 +1,315 @@
+package net.actinium.core;
+
+import org.lwjgl.PointerBuffer;
+import org.lwjgl.system.MemoryStack;
+import org.lwjgl.vulkan.VkAttachmentDescription;
+import org.lwjgl.vulkan.VkAttachmentReference;
+import org.lwjgl.vulkan.VkClearValue;
+import org.lwjgl.vulkan.VkCommandBuffer;
+import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
+import org.lwjgl.vulkan.VkCommandBufferBeginInfo;
+import org.lwjgl.vulkan.VkCommandPoolCreateInfo;
+import org.lwjgl.vulkan.VkFenceCreateInfo;
+import org.lwjgl.vulkan.VkFramebufferCreateInfo;
+import org.lwjgl.vulkan.VkRenderPassBeginInfo;
+import org.lwjgl.vulkan.VkRenderPassCreateInfo;
+import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
+import org.lwjgl.vulkan.VkSubmitInfo;
+import org.lwjgl.vulkan.VkSubpassDependency;
+import org.lwjgl.vulkan.VkSubpassDescription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.LongBuffer;
+
+import static org.lwjgl.vulkan.KHRSwapchain.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+import static org.lwjgl.vulkan.VK10.*;
+
+/**
+ * Minimal frame loop: acquire → record → submit → present, with {@code FRAMES_IN_FLIGHT}
+ * frames overlapping.
+ *
+ * <p>Two frames in flight is the deliberate default. Three hides more CPU jitter but adds a
+ * frame of input latency, which is more noticeable in Minecraft than the extra smoothness is
+ * worth. The value is a constant rather than a config option because changing it also changes
+ * how many copies of every per-frame resource the rest of the engine must keep.
+ *
+ * <p>Everything here is per-frame, never per-draw: one primary command buffer per frame,
+ * into which the terrain, entity and interop passes record as secondaries. Submitting once
+ * per frame instead of once per pass is most of the CPU win over the GL backend.
+ */
+public final class FrameRenderer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Frame");
+
+    private static final int FRAMES_IN_FLIGHT = 2;
+
+    private final VkContext ctx;
+    private VkSwapchain swapchain;
+
+    private long renderPass = VK_NULL_HANDLE;
+    private long[] framebuffers = new long[0];
+    private long commandPool = VK_NULL_HANDLE;
+    private VkCommandBuffer[] commandBuffers;
+
+    private final long[] imageAvailable = new long[FRAMES_IN_FLIGHT];
+    private final long[] renderFinished = new long[FRAMES_IN_FLIGHT];
+    private final long[] inFlightFences = new long[FRAMES_IN_FLIGHT];
+
+    private int frameIndex;
+    private int acquiredImage = -1;
+    private boolean frameActive;
+    private boolean needsRecreate;
+
+    public FrameRenderer(VkContext ctx, int width, int height, boolean vsync) {
+        this.ctx = ctx;
+        this.swapchain = new VkSwapchain(ctx, width, height, vsync);
+        createRenderPass();
+        createFramebuffers();
+        createCommandBuffers();
+        createSyncObjects();
+        LOGGER.info("Frame renderer ready ({} frames in flight)", FRAMES_IN_FLIGHT);
+    }
+
+    // ------------------------------------------------------------------
+    // Per-frame
+    // ------------------------------------------------------------------
+
+    /** @return the primary command buffer for this frame, or null when the frame was skipped. */
+    public VkCommandBuffer beginFrame(float r, float g, float b, float a) {
+        if (needsRecreate) {
+            return null;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            vkWaitForFences(ctx.device(), inFlightFences[frameIndex], true, Long.MAX_VALUE);
+
+            acquiredImage = swapchain.acquire(imageAvailable[frameIndex], VK_NULL_HANDLE);
+            if (acquiredImage < 0) {
+                needsRecreate = true;
+                return null;
+            }
+            vkResetFences(ctx.device(), inFlightFences[frameIndex]);
+
+            VkCommandBuffer cmd = commandBuffers[frameIndex];
+            vkResetCommandBuffer(cmd, 0);
+            vkBeginCommandBuffer(cmd, VkCommandBufferBeginInfo.calloc(stack)
+                    .sType$Default()
+                    .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT));
+
+            VkClearValue.Buffer clear = VkClearValue.calloc(1, stack);
+            clear.get(0).color().float32(0, r).float32(1, g).float32(2, b).float32(3, a);
+
+            VkRenderPassBeginInfo beginInfo = VkRenderPassBeginInfo.calloc(stack)
+                    .sType$Default()
+                    .renderPass(renderPass)
+                    .framebuffer(framebuffers[acquiredImage])
+                    .pClearValues(clear);
+            beginInfo.renderArea().offset().set(0, 0);
+            beginInfo.renderArea().extent().set(swapchain.width(), swapchain.height());
+
+            vkCmdBeginRenderPass(cmd, beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+            frameActive = true;
+            return cmd;
+        }
+    }
+
+    public void endFrameAndPresent() {
+        if (!frameActive) {
+            return;
+        }
+        VkCommandBuffer cmd = commandBuffers[frameIndex];
+        vkCmdEndRenderPass(cmd);
+        vkEndCommandBuffer(cmd);
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkSubmitInfo submit = VkSubmitInfo.calloc(stack)
+                    .sType$Default()
+                    .waitSemaphoreCount(1)
+                    .pWaitSemaphores(stack.longs(imageAvailable[frameIndex]))
+                    // Wait only at the point the swapchain image is actually written; vertex
+                    // and fragment work before that overlaps with the acquire.
+                    .pWaitDstStageMask(stack.ints(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
+                    .pCommandBuffers(stack.pointers(cmd))
+                    .pSignalSemaphores(stack.longs(renderFinished[frameIndex]));
+
+            int result = vkQueueSubmit(ctx.graphicsQueue(), submit, inFlightFences[frameIndex]);
+            if (result != VK_SUCCESS) {
+                throw new IllegalStateException("vkQueueSubmit: " + VkResults.describe(result));
+            }
+        }
+
+        if (!swapchain.present(acquiredImage, renderFinished[frameIndex])) {
+            needsRecreate = true;
+        }
+
+        frameActive = false;
+        acquiredImage = -1;
+        frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
+    }
+
+    public void resize(int width, int height, boolean vsync) {
+        if (width == 0 || height == 0) {
+            return;
+        }
+        vkDeviceWaitIdle(ctx.device());
+        destroyFramebuffers();
+        swapchain.recreate(width, height, vsync);
+        createFramebuffers();
+        needsRecreate = false;
+    }
+
+    public boolean needsRecreate() {
+        return needsRecreate;
+    }
+
+    public VkSwapchain swapchain() {
+        return swapchain;
+    }
+
+    public long renderPass() {
+        return renderPass;
+    }
+
+    // ------------------------------------------------------------------
+    // Setup
+    // ------------------------------------------------------------------
+
+    private void createRenderPass() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkAttachmentDescription.Buffer attachments = VkAttachmentDescription.calloc(1, stack);
+            attachments.get(0)
+                    .format(swapchain.imageFormat())
+                    .samples(VK_SAMPLE_COUNT_1_BIT)
+                    .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
+                    .storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+                    .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+                    .stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                    .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                    .finalLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+            VkAttachmentReference.Buffer colorRef = VkAttachmentReference.calloc(1, stack)
+                    .attachment(0)
+                    .layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+            VkSubpassDescription.Buffer subpass = VkSubpassDescription.calloc(1, stack);
+            subpass.get(0)
+                    .pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS)
+                    .colorAttachmentCount(1)
+                    .pColorAttachments(colorRef);
+
+            // Without this dependency the implicit layout transition to
+            // COLOR_ATTACHMENT_OPTIMAL can run before the acquire semaphore signals.
+            VkSubpassDependency.Buffer dependency = VkSubpassDependency.calloc(1, stack);
+            dependency.get(0)
+                    .srcSubpass(VK_SUBPASS_EXTERNAL)
+                    .dstSubpass(0)
+                    .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                    .srcAccessMask(0)
+                    .dstStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                    .dstAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+
+            VkRenderPassCreateInfo info = VkRenderPassCreateInfo.calloc(stack)
+                    .sType$Default()
+                    .pAttachments(attachments)
+                    .pSubpasses(subpass)
+                    .pDependencies(dependency);
+
+            LongBuffer pRenderPass = stack.mallocLong(1);
+            VkContext.check(vkCreateRenderPass(ctx.device(), info, null, pRenderPass), "vkCreateRenderPass");
+            renderPass = pRenderPass.get(0);
+        }
+    }
+
+    private void createFramebuffers() {
+        long[] views = swapchain.imageViews();
+        framebuffers = new long[views.length];
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            for (int i = 0; i < views.length; i++) {
+                VkFramebufferCreateInfo info = VkFramebufferCreateInfo.calloc(stack)
+                        .sType$Default()
+                        .renderPass(renderPass)
+                        .pAttachments(stack.longs(views[i]))
+                        .width(swapchain.width())
+                        .height(swapchain.height())
+                        .layers(1);
+                LongBuffer pFramebuffer = stack.mallocLong(1);
+                VkContext.check(vkCreateFramebuffer(ctx.device(), info, null, pFramebuffer),
+                        "vkCreateFramebuffer");
+                framebuffers[i] = pFramebuffer.get(0);
+            }
+        }
+    }
+
+    private void createCommandBuffers() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkCommandPoolCreateInfo poolInfo = VkCommandPoolCreateInfo.calloc(stack)
+                    .sType$Default()
+                    .flags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT)
+                    .queueFamilyIndex(ctx.graphicsFamily());
+            LongBuffer pPool = stack.mallocLong(1);
+            VkContext.check(vkCreateCommandPool(ctx.device(), poolInfo, null, pPool), "vkCreateCommandPool");
+            commandPool = pPool.get(0);
+
+            VkCommandBufferAllocateInfo allocInfo = VkCommandBufferAllocateInfo.calloc(stack)
+                    .sType$Default()
+                    .commandPool(commandPool)
+                    .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+                    .commandBufferCount(FRAMES_IN_FLIGHT);
+            PointerBuffer pBuffers = stack.mallocPointer(FRAMES_IN_FLIGHT);
+            VkContext.check(vkAllocateCommandBuffers(ctx.device(), allocInfo, pBuffers),
+                    "vkAllocateCommandBuffers");
+
+            commandBuffers = new VkCommandBuffer[FRAMES_IN_FLIGHT];
+            for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+                commandBuffers[i] = new VkCommandBuffer(pBuffers.get(i), ctx.device());
+            }
+        }
+    }
+
+    private void createSyncObjects() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkSemaphoreCreateInfo semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack).sType$Default();
+            // Created signalled so the very first beginFrame does not deadlock waiting on a
+            // fence that nothing has submitted yet.
+            VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.calloc(stack)
+                    .sType$Default()
+                    .flags(VK_FENCE_CREATE_SIGNALED_BIT);
+
+            LongBuffer p = stack.mallocLong(1);
+            for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+                VkContext.check(vkCreateSemaphore(ctx.device(), semaphoreInfo, null, p), "vkCreateSemaphore");
+                imageAvailable[i] = p.get(0);
+                VkContext.check(vkCreateSemaphore(ctx.device(), semaphoreInfo, null, p), "vkCreateSemaphore");
+                renderFinished[i] = p.get(0);
+                VkContext.check(vkCreateFence(ctx.device(), fenceInfo, null, p), "vkCreateFence");
+                inFlightFences[i] = p.get(0);
+            }
+        }
+    }
+
+    private void destroyFramebuffers() {
+        for (long fb : framebuffers) {
+            if (fb != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(ctx.device(), fb, null);
+            }
+        }
+        framebuffers = new long[0];
+    }
+
+    public void destroy() {
+        vkDeviceWaitIdle(ctx.device());
+        for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+            vkDestroySemaphore(ctx.device(), imageAvailable[i], null);
+            vkDestroySemaphore(ctx.device(), renderFinished[i], null);
+            vkDestroyFence(ctx.device(), inFlightFences[i], null);
+        }
+        if (commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(ctx.device(), commandPool, null);
+        }
+        destroyFramebuffers();
+        if (renderPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(ctx.device(), renderPass, null);
+        }
+        swapchain.destroy();
+    }
+}
