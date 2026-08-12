@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "net.actinium.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "actinium.refmap.json",
+  "client": [
+    "vulkanmod.GlUtilMixin",
+    "vulkanmod.SPIRVUtilsMixin",
+    "vulkanmod.VkGlFramebufferMixin",
+    "vulkanmod.VkGlTextureMixin",
+    "vulkanmod.VulkanImageMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "mixins": [],
+  "plugin": "net.actinium.ActiniumMixinPlugin"
+}
