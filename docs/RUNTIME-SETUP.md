@@ -506,7 +506,7 @@ Only `texSubImage2D` reads client memory through that helper; `texImage2D` does 
 redirect on a call site that does not exist fails the injection check outright, which is how
 that was found.
 
-## Fixed: the offscreen framebuffer crash
+## Partly fixed: the offscreen framebuffer crash
 
 Xaero's Minimap took the client down with a SIGSEGV whenever radar icons were drawn. Four
 attempts failed before the cause was found, and all four failed the same way: by guessing at a
@@ -557,18 +557,27 @@ Detaching instead looks tidier and is not safe: `RenderPass` dereferences
 an NPE, and removing the framebuffer from its map makes a later bind throw "No Framebuffer with
 ID". Leaving the image allocated is what a real driver does.
 
-### Result
+### Result: the SIGSEGV is gone, the crash is not
 
-Xaero's Minimap and World Map both run in a world with radar icons on screen. Zero crashes, no
-`hs_err` file, clean shutdown. The fix reports itself once:
+Pressing Tab with Xaero's Minimap installed still kills the client. What changed is the failure
+mode, and that is worth being precise about:
 
 ```
-[Actinium/Textures] Deferring the free of a texture still attached to a framebuffer, as
-                    OpenGL would.
+[Actinium/Textures] Deferring the free of a texture still attached to a framebuffer
+[Actinium/Barrier]  Skipped an image barrier for a destroyed or uncreated VkImage
+RuntimeException: Failed to submit draw command buffer: VK_ERROR_DEVICE_LOST
+    at net.vulkanmod.vulkan.Renderer.submitFrame(Renderer.java:335)
 ```
 
-The minimap's map texture still renders with a diagonal skew in some cases, which is a separate
-stride question, not a lifetime one.
+Both guards fire exactly once and then the frame is rejected by the driver. So the lifetime fix
+removes one dead handle, and something else in the same path is still submitting invalid work.
+
+An earlier run was reported here as fixed. It was not: that run never pressed Tab, and a clean
+shutdown was mistaken for a passing test. A test that does not perform the action under test
+proves nothing.
+
+The minimap's map texture also still renders with a diagonal skew in some cases, which is a
+separate stride question.
 
 ## Out of scope: renderer-versus-renderer conflicts
 

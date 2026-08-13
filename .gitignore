@@ -22,3 +22,6 @@ run
 
 # Dev client logs
 logs
+
+# Headless game test run directory
+run-gametest

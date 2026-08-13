@@ -1,6 +1,5 @@
 package net.actinium;
 
-import net.actinium.core.MemoryStackSize;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -36,10 +35,24 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
             "net.actinium.mixin.vulkanmod.VkGlTextureMixin", "net.vulkanmod.gl.VkGlTexture",
             "net.actinium.mixin.vulkanmod.VulkanImageMixin", "net.vulkanmod.vulkan.texture.VulkanImage");
 
+    /**
+     * LWJGL's per-thread memory stack, raised before {@code MemoryStack} loads.
+     *
+     * <p>Spelled out as plain strings rather than read from {@code MemoryStackSize}, because
+     * that class imports LWJGL. This plugin loads on both sides, a dedicated server has no
+     * LWJGL on its classpath, and touching it there kills the server before it starts:
+     *
+     * <pre>NoClassDefFoundError: org/lwjgl/system/Configuration</pre>
+     *
+     * <p>Nothing in this method may reference a client-only class.
+     */
+    private static final String STACK_SIZE_PROPERTY = "org.lwjgl.system.stackSize";
+    private static final String STACK_SIZE_KB = "1024";
+
     @Override
     public void onLoad(String mixinPackage) {
-        if (System.getProperty(MemoryStackSize.PROPERTY) == null) {
-            System.setProperty(MemoryStackSize.PROPERTY, MemoryStackSize.REQUESTED_KB);
+        if (System.getProperty(STACK_SIZE_PROPERTY) == null) {
+            System.setProperty(STACK_SIZE_PROPERTY, STACK_SIZE_KB);
         }
     }
 

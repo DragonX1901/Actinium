@@ -36,7 +36,12 @@ public final class MemoryStackSize {
     /** Bytes. Below this, multi-GPU enumeration is likely to overflow. */
     private static final int MINIMUM = 512 * 1024;
 
-    /** What {@link net.actinium.ActiniumMixinPlugin} requests, in kilobytes. */
+    /**
+     * What {@link net.actinium.ActiniumMixinPlugin} requests, in kilobytes.
+     *
+     * <p>Duplicated there as a plain string on purpose: this class imports LWJGL, the plugin
+     * loads on a dedicated server too, and a server has no LWJGL.
+     */
     public static final String REQUESTED_KB = "1024";
 
     public static final String PROPERTY = "org.lwjgl.system.stackSize";

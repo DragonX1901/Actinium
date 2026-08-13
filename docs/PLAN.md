@@ -23,7 +23,7 @@ is sequenced on that reading.
 | Settings screen bound to VulkanMod's 13 renderer settings | Working, verified |
 | Compatibility mixins: formats, framebuffer attachments, shader includes, pixel conversion | Working, verified |
 | GL context bridge for raw-GL callers | Working, verified |
-| Texture lifetime fix (the radar icon crash) | Working, verified |
+| Texture lifetime fix | Removes the SIGSEGV; the Tab crash still ends in VK_ERROR_DEVICE_LOST |
 | Standalone Vulkan backend (`core/`) | Compiles, boots standalone, mixins disabled in game |
 | GL interop draw path (`interop/`) | Never executed a draw; gated off by default |
 | Packaging for a real installation | Done: 216 KB pure-Java jar, `vulkanmod` declared required |
@@ -98,11 +98,12 @@ locally.
 
 Ordered by how many mods each unblocks, from measurements already taken.
 
-1. ~~**Framebuffer attachment lifetime.**~~ **Done.** The emulated framebuffer kept a
+1. **Framebuffer attachment lifetime. Partly done.** The emulated framebuffer kept a
    `VulkanImage` after the texture behind it was deleted, and the next barrier ran against a
-   dead handle. `VulkanModTextures` now defers the free while an attachment references the
-   image, which is the lifetime OpenGL guarantees. Worth reporting upstream regardless, since
-   the fix belongs in the backend rather than in a mixin over it.
+   dead handle. `VulkanModTextures` defers the free while an attachment references the image,
+   which is the lifetime OpenGL guarantees, and that removes the SIGSEGV. Pressing Tab still
+   ends in `VK_ERROR_DEVICE_LOST`, so more invalid work is reaching the queue from the same
+   path. Reproducing it needs a display; see the note on verification below.
 2. **Missing uniforms in the shader converter.** `FogStart`, `FogEnd` and `FogColor` are absent
    from the uniform map, in the same way the format table was missing depth-stencil entries.
    Same shape of fix as `GlUtilMixin`.
@@ -130,6 +131,16 @@ five separate patches the code review found symptoms of:
 
 None of these can be verified until a draw actually runs, which is why they are one change and
 not five.
+
+## Verification has a hard limit
+
+Everything except rendering can be checked without a display: `build`, `smokeTest
+-Pactinium.headless=true`, and `runGameTestServer`, which loads every mod and applies every
+mixin. A rendering bug cannot. It needs someone at a screen performing the action.
+
+That limit produced a wrong claim once already: a run that never pressed Tab was reported as
+proving the Tab crash fixed. Client-side rendering results belong to whoever ran the client, and
+should come from `run/logs/latest.log` rather than from an automated guess.
 
 ## Before tagging 0.1.0
 

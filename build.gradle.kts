@@ -85,6 +85,20 @@ neoForge {
             server()
             programArgument("--nogui")
         }
+        // Official NeoForge headless run. Loads every mod, applies every mixin and runs any
+        // registered game tests without a window, which is the only part of this mod that can
+        // be checked without a display.
+        register("gameTestServer") {
+            type = "gameTestServer"
+            systemProperty("neoforge.enabledGameTestNamespaces", mod_id)
+            // Its own directory, so it does not pick up the client mods in run/mods.
+            // VulkanMod is client-only and its mixin plugin touches org.lwjgl.system on load,
+            // which kills a dedicated server before it starts. That is expected of a renderer
+            // and not something to work around; this check exists to prove Actinium itself
+            // loads and applies cleanly with nothing else present.
+            gameDirectory = file("run-gametest")
+        }
+
         register("data") {
             data()
             programArguments.addAll(
