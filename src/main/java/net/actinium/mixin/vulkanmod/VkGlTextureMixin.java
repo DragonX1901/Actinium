@@ -1,5 +1,6 @@
 package net.actinium.mixin.vulkanmod;
 
+import net.actinium.compat.VulkanModTextures;
 import net.actinium.interop.GLPixelConverter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,6 +24,25 @@ import java.nio.ByteBuffer;
  */
 @Mixin(targets = "net.vulkanmod.gl.VkGlTexture", remap = false)
 public abstract class VkGlTextureMixin {
+
+    /**
+     * Keeps an attached texture's image alive, as OpenGL does.
+     *
+     * <p>The backend queues the image for freeing the moment the name is deleted, without
+     * telling any framebuffer that references it. The next render pass then transitions a
+     * released handle and the driver takes the process with it.
+     *
+     * <p>When a framebuffer still holds the image, the name is released and the image is left
+     * allocated. That is the lifetime a real driver gives it: an attachment holds a reference
+     * until it is detached or the framebuffer is destroyed.
+     */
+    @Inject(method = "glDeleteTextures(I)V", at = @At("HEAD"), cancellable = true, remap = false)
+    private static void actinium$deferAttachedTextureFree(int id, CallbackInfo ci) {
+        if (VulkanModTextures.isAttachedToFramebuffer(id)) {
+            VulkanModTextures.releaseNameOnly(id);
+            ci.cancel();
+        }
+    }
 
     /** Alignment is not tracked by the backend at all, so track it here. */
     @Inject(method = "pixelStoreI(II)V", at = @At("HEAD"), remap = false)

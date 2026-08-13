@@ -91,10 +91,11 @@ catches a broken build before a release does.
 
 Ordered by how many mods each unblocks, from measurements already taken.
 
-1. **Framebuffer attachment lifetime.** The emulated framebuffer keeps a `VulkanImage` after the
-   texture behind it is deleted, and the next barrier runs against a dead handle. This is the
-   Xaero's Minimap crash. GL detaches on delete; the emulation does not. Belongs upstream in
-   VulkanMod, with the analysis in `RUNTIME-SETUP.md` attached.
+1. ~~**Framebuffer attachment lifetime.**~~ **Done.** The emulated framebuffer kept a
+   `VulkanImage` after the texture behind it was deleted, and the next barrier ran against a
+   dead handle. `VulkanModTextures` now defers the free while an attachment references the
+   image, which is the lifetime OpenGL guarantees. Worth reporting upstream regardless, since
+   the fix belongs in the backend rather than in a mixin over it.
 2. **Missing uniforms in the shader converter.** `FogStart`, `FogEnd` and `FogColor` are absent
    from the uniform map, in the same way the format table was missing depth-stencil entries.
    Same shape of fix as `GlUtilMixin`.

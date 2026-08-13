@@ -506,67 +506,69 @@ Only `texSubImage2D` reads client memory through that helper; `texImage2D` does 
 redirect on a call site that does not exist fails the injection check outright, which is how
 that was found.
 
-## Not fixed: offscreen framebuffer crash, root cause identified
+## Fixed: the offscreen framebuffer crash
 
-Xaero's Minimap still takes the client down when radar icons are drawn. The cause is now known
-precisely, and it is not fixable from outside the backend.
+Xaero's Minimap took the client down with a SIGSEGV whenever radar icons were drawn. Four
+attempts failed before the cause was found, and all four failed the same way: by guessing at a
+1.21.4 source tree while debugging a 1.21.1 jar.
 
 ### Getting the real source
 
-The GitHub repository's HEAD targets 1.21.4, while the shipped build is 0.5.5-dev+3.1 for
-1.21.1, and no tag matches it. Reading that tree while debugging this jar produced three wrong
-answers in a row. Decompiling the actual jar with Vineflower gave source that matches the
-bytecode being executed, and every conclusion below comes from that.
+The repository's HEAD targets 1.21.4; the shipped build is 0.5.5-dev+3.1 for 1.21.1 and no tag
+matches it. Decompiling the actual jar with Vineflower gave source matching the bytecode being
+executed. Every conclusion below comes from that, and the three earlier explanations died within
+minutes of reading it.
 
-### Three hypotheses, all disproved by the source
-
-| Hypothesis | Why it is wrong |
+| Hypothesis | Why it was wrong |
 |---|---|
-| The bind happens outside a frame, so there is no command buffer | `Renderer.beginRendering` already guards with `if (!skipRendering && this.recordingCmds)`. A guard on both `beginRendering` overloads never fired on this path. |
-| A render pass is being nested inside another | `Renderer.beginRendering` calls `endRenderPass` itself before starting the new one. |
-| The depth-stencil aspect mask is wrong for the format Actinium supplies | `getAspect(129)` returns 6, which is `DEPTH \| STENCIL`. Correct. |
+| The bind happens outside a frame | `Renderer.beginRendering` already guards on `recordingCmds` |
+| A render pass is nested inside another | `Renderer.beginRendering` calls `endRenderPass` itself |
+| The depth-stencil aspect mask is wrong | `getAspect(129)` returns `DEPTH \| STENCIL`, which is correct |
 
-### What it actually is
-
-`VulkanImage.transitionLayout` records the barrier with:
+### The cause
 
 ```java
-barrier.image(image.getId());
+public static void glDeleteTextures(int i) {
+    VkGlTexture glTexture = map.remove(i);
+    VulkanImage image = glTexture != null ? glTexture.vulkanImage : null;
+    if (image != null) {
+        MemoryManager.getInstance().addToFreeable(image);
+    }
+}
 ```
 
-Vulkan does not check that handle. An image whose `VkImage` was freed reports 0, the driver
-dereferences it, and the process dies inside `vkCmdPipelineBarrier` — which is why the failure
-arrives as a SIGSEGV with an OpenGL driver frame on top rather than as a Java error.
+The image is queued for freeing and nothing tells any framebuffer that references it. Its
+`colorAttachment` and `depthAttachment` still point at the image, so the next
+`beginRenderPass` records a layout transition against a handle the driver has released. That is
+why the failure arrived as a SIGSEGV with an OpenGL driver frame on top rather than as a Java
+error.
 
-A guard that skips the barrier when the handle is 0 confirmed the diagnosis: it fired exactly
-once, at the moment of the crash. It is **not a fix**. The transition is genuinely required, so
-skipping it leaves the image in the wrong layout and the next submit fails:
+In OpenGL this cannot happen: an attachment holds a reference, and deleting the texture name
+leaves the image alive until it is detached or the framebuffer is destroyed. Mods rely on it.
+Xaero's builds a framebuffer per radar icon and releases the textures behind them.
+
+### The fix
+
+`VulkanModTextures` restores that rule. When a texture being deleted is still attached to a
+framebuffer, the GL name is released and the image is left allocated.
+
+Detaching instead looks tidier and is not safe: `RenderPass` dereferences
+`framebuffer.getColorAttachment()` with no null check, so clearing it trades a driver crash for
+an NPE, and removing the framebuffer from its map makes a later bind throw "No Framebuffer with
+ID". Leaving the image allocated is what a real driver does.
+
+### Result
+
+Xaero's Minimap and World Map both run in a world with radar icons on screen. Zero crashes, no
+`hs_err` file, clean shutdown. The fix reports itself once:
 
 ```
-java.lang.RuntimeException: Failed to submit draw command buffer: VK_ERROR_DEVICE_LOST
+[Actinium/Textures] Deferring the free of a texture still attached to a framebuffer, as
+                    OpenGL would.
 ```
 
-That trades a JVM kill for a clean Java exception and a crash report. The guard is kept for that
-reason and for no other; it is labelled as a diagnostic in the source.
-
-### Where the real fix belongs
-
-`VkGlFramebuffer.setAttachmentTexture` stores a `VulkanImage` reference:
-
-```java
-} else if (glTexture.vulkanImage != null) {
-    case 36096: this.setDepthAttachment(glTexture.getVulkanImage());
-```
-
-Nothing invalidates that framebuffer when the texture is later deleted or reallocated, so the
-framebuffer outlives its attachment. Xaero's builds a framebuffer per radar icon and releases
-the textures behind them, which is ordinary GL practice: in GL, deleting a texture attached to
-an FBO detaches it.
-
-Fixing this means giving the emulated framebuffer the same detach-on-delete behaviour GL has,
-inside the backend. Patching it from a mixin would mean tracking every texture deletion and
-rewriting another mod's object graph from outside, which is the kind of change that belongs
-upstream with this analysis attached.
+The minimap's map texture still renders with a diagonal skew in some cases, which is a separate
+stride question, not a lifetime one.
 
 ## Out of scope: renderer-versus-renderer conflicts
 
