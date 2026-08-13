@@ -23,10 +23,11 @@ is sequenced on that reading.
 | Settings screen bound to VulkanMod's 13 renderer settings | Working, verified |
 | Compatibility mixins: formats, framebuffer attachments, shader includes, pixel conversion | Working, verified |
 | GL context bridge for raw-GL callers | Working, verified |
+| Texture lifetime fix (the radar icon crash) | Working, verified |
 | Standalone Vulkan backend (`core/`) | Compiles, boots standalone, mixins disabled in game |
-| GL interop draw path (`interop/`) | Never executed a draw; known defects |
-| Packaging for a real installation | Not done |
-| Repository presentation: README, licence, CI | Not done |
+| GL interop draw path (`interop/`) | Never executed a draw; gated off by default |
+| Packaging for a real installation | Done: 216 KB pure-Java jar, `vulkanmod` declared required |
+| Repository presentation: README, licence, CI | Done |
 
 ## The decision that unblocks everything else
 
@@ -62,7 +63,10 @@ Nothing else matters until someone other than the author can run this.
 - Verify the built jar loads in a non-dev instance, which is the only test that proves any of
   this.
 
-**Done when:** the jar from `./gradlew build` works in a normal NeoForge profile.
+**Status: done.** The jar is 216 KB, contains no LWJGL, ASM or VulkanMod classes, and declares
+`vulkanmod` required. What is still untested is the one thing that matters most: loading it in a
+real NeoForge profile rather than the dev runtime. That needs a packaged VulkanMod install and
+is the first thing to do before tagging a release.
 
 ## Phase 2 — Be honest in the interface
 
@@ -73,7 +77,9 @@ Nothing else matters until someone other than the author can run this.
 - Keep the standalone backend in the tree but document it as unused, since `smokeTest` is a
   genuinely useful driver check and deleting it loses that.
 
-**Done when:** nothing in the UI or config promises behaviour the mod does not deliver.
+**Status: done and verified in game.** The Advanced page now shows one experimental toggle in
+place of three rows that could never take effect, and the config entry states in plain words
+that the layer does not render.
 
 ## Phase 3 — Repository presentation
 
@@ -84,8 +90,9 @@ Nothing else matters until someone other than the author can run this.
   transformer and shader checks; the Vulkan section needs one and should be skipped in CI.
 - Split `smokeTest` so the headless checks can run without a display.
 
-**Done when:** a stranger can tell in thirty seconds whether this mod is for them, and CI
-catches a broken build before a release does.
+**Status: done.** `smokeTest` takes `-Pactinium.headless` and skips only the section that needs
+a GPU, so CI still runs the pixel converter, bytecode and shader checks. Both paths verified
+locally.
 
 ## Phase 4 — Close the compatibility gaps that are still open
 
@@ -100,6 +107,11 @@ Ordered by how many mods each unblocks, from measurements already taken.
    from the uniform map, in the same way the format table was missing depth-stencil entries.
    Same shape of fix as `GlUtilMixin`.
 3. **Mip level uploads.** `texImage2D` allocates one mip level while callers upload several.
+
+**Status: the crash is fixed.** Xaero's Minimap and World Map run in a world with radar icons
+on screen. Items 2 and 3 remain and are cosmetic by comparison: a shader with unmatched fog
+uniforms renders without fog rather than failing, and multi-level uploads land on a
+single-level image.
 
 **Done when:** the map mods either work or fail with a message that names the reason.
 
@@ -118,6 +130,15 @@ five separate patches the code review found symptoms of:
 
 None of these can be verified until a draw actually runs, which is why they are one change and
 not five.
+
+## Before tagging 0.1.0
+
+1. Install the built jar into a real NeoForge profile alongside a released VulkanMod and confirm
+   it loads. Everything else has been verified in the dev runtime, which is not the same thing.
+2. Report the texture lifetime bug upstream with the decompiled analysis. The fix belongs in the
+   backend, not in a mixin sitting over it.
+3. Decide whether the standalone backend stays. It is dead weight in the jar, and `smokeTest`
+   is the only thing keeping it.
 
 ## What "product ready" is not
 
