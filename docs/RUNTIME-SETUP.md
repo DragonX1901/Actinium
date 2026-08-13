@@ -508,61 +508,76 @@ that was found.
 
 ## Not fixed: the offscreen framebuffer crash
 
-Pressing Tab with Xaero's Minimap installed loses the Vulkan device. Five fixes were written
-against it. Every one addresses a real gap in the backend's OpenGL emulation, every one is
-observed firing in the log, and the crash survives all of them.
+Pressing Tab with Xaero's Minimap installed loses the Vulkan device. What follows is what has
+been measured, including the part where several of these fixes were making things worse.
 
-### Reproducing it without a person at the keyboard
+### Forcing validation layers in from outside
+
+The backend hardcodes `ENABLE_VALIDATION_LAYERS = false`, but the loader can inject them without
+touching its code:
 
 ```bash
+VK_LOADER_LAYERS_ENABLE=VK_LAYER_KHRONOS_validation \
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation \
 ./gradlew runClient -PquickPlay="New World"
-xdotool key --window "$(xdotool search --name Minecraft | tail -1)" Tab
 ```
 
-`--quickPlaySingleplayer` boots straight into a save, and `xdotool key --window` delivers the
-key to that window without raising or focusing it. Reproducing a rendering bug needs the client
-on screen, but it does not need a human clicking through menus, and it should not take over
-somebody's desktop.
+This changed the investigation completely. Five previous attempts inferred what was invalid from
+crash stacks; the layer simply says it.
 
-### What was tried
+### What validation reported
 
-| Fix | Gap it closes | Observed |
+```
+UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout (ERROR)
+vkQueueSubmit(): command buffer expects VkImage 0xb730000000b73
+  (aspectMask 0x1, array layer 0, mip level 0) to be in
+  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+  -- instead, current layout is VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+```
+
+The image is **alive**. This is a layout mismatch on a colour image, not the released handle that
+five earlier fixes were written against.
+
+### Measured A/B, all at the same point (world load, before any input)
+
+| Configuration | InvalidImageLayout | DEVICE_LOST |
 |---|---|---|
-| Defer freeing an attached texture | `glDeleteTextures(int)` frees an image a framebuffer holds | Fires at world load |
-| Same for the bulk overload | `glDeleteTextures(IntBuffer)` was unguarded; batch deletes are what mods use | Fires |
-| Re-point attachments on reallocation | `allocateImage` frees the old image; GL attachments name the texture, not a snapshot | Fires once |
-| Invalidate cached handles | `renderpassToFramebufferMap` caches `VkFramebuffer` objects built from the old image view | Fires with the re-point |
-| Skip barriers on a dead handle | `barrier.image(image.getId())` with a handle of 0 | Fires once, then the device is lost |
+| No Actinium mixins | 0 | 0 |
+| All except `VkGlFramebufferMixin` | 0 | 0 |
+| Plus the depth-stencil remap only | 16 | 1 |
+| Plus the remap and the render-pass guards | 29 | 1 |
 
-The diagnostic is stable across all of them:
+Two conclusions follow, and both correct earlier claims made in this file.
+
+**The render-pass guards were pure harm.** Ending the active pass before every framebuffer bind,
+and refusing to begin one outside a frame, added 13 layout errors. Both were written against
+hypotheses this document had already recorded as disproved: `Renderer.beginRendering` ends the
+previous pass itself and guards on `recordingCmds`. Ending a pass out of band desynchronises the
+backend's layout tracking, because `RenderPass.endRenderPass` is what records an attachment's
+final layout. They were described here as turning a crash into a cleaner failure. They were
+producing one. They are removed.
+
+**The depth-stencil remap is necessary and unsound.** Without it, Create's Ponder library cannot
+start:
 
 ```
-Skipped an image barrier for a destroyed or uncreated VkImage
-  (colour attachment, still owned by a live GL texture: false). Layout 5 -> 2.
-RuntimeException: Failed to submit draw command buffer: VK_ERROR_DEVICE_LOST
+UnsupportedOperationException at VkGlFramebuffer.framebufferTexture2D(VkGlFramebuffer.java:105)
+  at net.createmod.catnip.platform.NeoForgeClientHooksHelper.enableStencilBuffer
 ```
 
-A colour attachment, on a live framebuffer, that no GL texture owns. Five separate lifetime
-paths were closed and an image still reaches the render pass after its storage is gone.
+With it, 16 layout errors appear that are not there otherwise. Presenting a combined
+depth-stencil image as a plain depth attachment changes how the render pass is built, and colour
+attachments end up sampled while still in `TRANSFER_DST_OPTIMAL`.
 
-### Why this stops here
+### State of the goal
 
-Five distinct paths in one class, each individually correct to fix and none sufficient, is a
-design-level problem rather than a patch-level one. `VkGlTexture` and `VkGlFramebuffer` hold
-`VulkanImage` references with no ownership rule between them, and OpenGL's semantics require
-one: an attachment keeps storage alive, and re-specifying a texture is visible through every
-attachment naming it.
+The minimap does not work. Tab still loses the device. What is different is that the failure is
+now attributable: it is not a released image, and roughly half of what was previously called a
+fix was generating errors of its own.
 
-Reconstructing that from outside means intercepting every path that can free or replace an
-image and keeping a shadow reference graph. The fifth attempt is where the cost of that became
-clear.
-
-The five fixes are kept. Each is correct on its own terms, and together they turn a SIGSEGV into
-a clean `VK_ERROR_DEVICE_LOST` with a crash report. That is not a working minimap, and it should
-not be described as one.
-
-The analysis belongs upstream in VulkanMod, where the ownership rule can live in the two classes
-that need it.
+The remaining question is narrow and testable: why does attaching a depth-stencil image as the
+depth attachment leave a colour image in `TRANSFER_DST_OPTIMAL` at submit time. That is one
+validation message away from an answer, and it is the next thing to run down.
 
 ## Out of scope: renderer-versus-renderer conflicts
 
