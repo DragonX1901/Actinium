@@ -506,78 +506,63 @@ Only `texSubImage2D` reads client memory through that helper; `texImage2D` does 
 redirect on a call site that does not exist fails the injection check outright, which is how
 that was found.
 
-## Partly fixed: the offscreen framebuffer crash
+## Not fixed: the offscreen framebuffer crash
 
-Xaero's Minimap took the client down with a SIGSEGV whenever radar icons were drawn. Four
-attempts failed before the cause was found, and all four failed the same way: by guessing at a
-1.21.4 source tree while debugging a 1.21.1 jar.
+Pressing Tab with Xaero's Minimap installed loses the Vulkan device. Five fixes were written
+against it. Every one addresses a real gap in the backend's OpenGL emulation, every one is
+observed firing in the log, and the crash survives all of them.
 
-### Getting the real source
+### Reproducing it without a person at the keyboard
 
-The repository's HEAD targets 1.21.4; the shipped build is 0.5.5-dev+3.1 for 1.21.1 and no tag
-matches it. Decompiling the actual jar with Vineflower gave source matching the bytecode being
-executed. Every conclusion below comes from that, and the three earlier explanations died within
-minutes of reading it.
-
-| Hypothesis | Why it was wrong |
-|---|---|
-| The bind happens outside a frame | `Renderer.beginRendering` already guards on `recordingCmds` |
-| A render pass is nested inside another | `Renderer.beginRendering` calls `endRenderPass` itself |
-| The depth-stencil aspect mask is wrong | `getAspect(129)` returns `DEPTH \| STENCIL`, which is correct |
-
-### The cause
-
-```java
-public static void glDeleteTextures(int i) {
-    VkGlTexture glTexture = map.remove(i);
-    VulkanImage image = glTexture != null ? glTexture.vulkanImage : null;
-    if (image != null) {
-        MemoryManager.getInstance().addToFreeable(image);
-    }
-}
+```bash
+./gradlew runClient -PquickPlay="New World"
+xdotool key --window "$(xdotool search --name Minecraft | tail -1)" Tab
 ```
 
-The image is queued for freeing and nothing tells any framebuffer that references it. Its
-`colorAttachment` and `depthAttachment` still point at the image, so the next
-`beginRenderPass` records a layout transition against a handle the driver has released. That is
-why the failure arrived as a SIGSEGV with an OpenGL driver frame on top rather than as a Java
-error.
+`--quickPlaySingleplayer` boots straight into a save, and `xdotool key --window` delivers the
+key to that window without raising or focusing it. Reproducing a rendering bug needs the client
+on screen, but it does not need a human clicking through menus, and it should not take over
+somebody's desktop.
 
-In OpenGL this cannot happen: an attachment holds a reference, and deleting the texture name
-leaves the image alive until it is detached or the framebuffer is destroyed. Mods rely on it.
-Xaero's builds a framebuffer per radar icon and releases the textures behind them.
+### What was tried
 
-### The fix
+| Fix | Gap it closes | Observed |
+|---|---|---|
+| Defer freeing an attached texture | `glDeleteTextures(int)` frees an image a framebuffer holds | Fires at world load |
+| Same for the bulk overload | `glDeleteTextures(IntBuffer)` was unguarded; batch deletes are what mods use | Fires |
+| Re-point attachments on reallocation | `allocateImage` frees the old image; GL attachments name the texture, not a snapshot | Fires once |
+| Invalidate cached handles | `renderpassToFramebufferMap` caches `VkFramebuffer` objects built from the old image view | Fires with the re-point |
+| Skip barriers on a dead handle | `barrier.image(image.getId())` with a handle of 0 | Fires once, then the device is lost |
 
-`VulkanModTextures` restores that rule. When a texture being deleted is still attached to a
-framebuffer, the GL name is released and the image is left allocated.
-
-Detaching instead looks tidier and is not safe: `RenderPass` dereferences
-`framebuffer.getColorAttachment()` with no null check, so clearing it trades a driver crash for
-an NPE, and removing the framebuffer from its map makes a later bind throw "No Framebuffer with
-ID". Leaving the image allocated is what a real driver does.
-
-### Result: the SIGSEGV is gone, the crash is not
-
-Pressing Tab with Xaero's Minimap installed still kills the client. What changed is the failure
-mode, and that is worth being precise about:
+The diagnostic is stable across all of them:
 
 ```
-[Actinium/Textures] Deferring the free of a texture still attached to a framebuffer
-[Actinium/Barrier]  Skipped an image barrier for a destroyed or uncreated VkImage
+Skipped an image barrier for a destroyed or uncreated VkImage
+  (colour attachment, still owned by a live GL texture: false). Layout 5 -> 2.
 RuntimeException: Failed to submit draw command buffer: VK_ERROR_DEVICE_LOST
-    at net.vulkanmod.vulkan.Renderer.submitFrame(Renderer.java:335)
 ```
 
-Both guards fire exactly once and then the frame is rejected by the driver. So the lifetime fix
-removes one dead handle, and something else in the same path is still submitting invalid work.
+A colour attachment, on a live framebuffer, that no GL texture owns. Five separate lifetime
+paths were closed and an image still reaches the render pass after its storage is gone.
 
-An earlier run was reported here as fixed. It was not: that run never pressed Tab, and a clean
-shutdown was mistaken for a passing test. A test that does not perform the action under test
-proves nothing.
+### Why this stops here
 
-The minimap's map texture also still renders with a diagonal skew in some cases, which is a
-separate stride question.
+Five distinct paths in one class, each individually correct to fix and none sufficient, is a
+design-level problem rather than a patch-level one. `VkGlTexture` and `VkGlFramebuffer` hold
+`VulkanImage` references with no ownership rule between them, and OpenGL's semantics require
+one: an attachment keeps storage alive, and re-specifying a texture is visible through every
+attachment naming it.
+
+Reconstructing that from outside means intercepting every path that can free or replace an
+image and keeping a shadow reference graph. The fifth attempt is where the cost of that became
+clear.
+
+The five fixes are kept. Each is correct on its own terms, and together they turn a SIGSEGV into
+a clean `VK_ERROR_DEVICE_LOST` with a crash report. That is not a working minimap, and it should
+not be described as one.
+
+The analysis belongs upstream in VulkanMod, where the ownership rule can live in the two classes
+that need it.
 
 ## Out of scope: renderer-versus-renderer conflicts
 

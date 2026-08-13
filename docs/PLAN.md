@@ -23,7 +23,7 @@ is sequenced on that reading.
 | Settings screen bound to VulkanMod's 13 renderer settings | Working, verified |
 | Compatibility mixins: formats, framebuffer attachments, shader includes, pixel conversion | Working, verified |
 | GL context bridge for raw-GL callers | Working, verified |
-| Texture lifetime fix | Removes the SIGSEGV; the Tab crash still ends in VK_ERROR_DEVICE_LOST |
+| Texture lifetime fixes (five) | All fire; the Tab crash still ends in VK_ERROR_DEVICE_LOST |
 | Standalone Vulkan backend (`core/`) | Compiles, boots standalone, mixins disabled in game |
 | GL interop draw path (`interop/`) | Never executed a draw; gated off by default |
 | Packaging for a real installation | Done: 216 KB pure-Java jar, `vulkanmod` declared required |

@@ -9,6 +9,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 
 /**
  * Routes client-memory texture uploads through {@link GLPixelConverter}.
@@ -42,6 +43,47 @@ public abstract class VkGlTextureMixin {
             VulkanModTextures.releaseNameOnly(id);
             ci.cancel();
         }
+    }
+
+    /**
+     * The same rule for the bulk overload.
+     *
+     * <p>{@code glDeleteTextures} exists twice: one name, and an {@code IntBuffer} of them.
+     * Guarding only the single-name form left the batch form freeing attached images exactly as
+     * before, which is how a framebuffer ended up holding a colour attachment that no GL texture
+     * owned any more. Mods that build a render target per object delete in batches, so the
+     * unguarded overload was the one that mattered.
+     */
+    @Inject(method = "glDeleteTextures(Ljava/nio/IntBuffer;)V", at = @At("HEAD"),
+            cancellable = true, remap = false)
+    private static void actinium$deferAttachedTextureFreeBulk(IntBuffer ids, CallbackInfo ci) {
+        for (int i = ids.position(); i < ids.limit(); i++) {
+            int id = ids.get(i);
+            if (VulkanModTextures.isAttachedToFramebuffer(id)) {
+                VulkanModTextures.releaseNameOnly(id);
+            } else {
+                VulkanModTextures.deleteSingle(id);
+            }
+        }
+        ci.cancel();
+    }
+
+    /**
+     * Keeps framebuffer attachments pointing at a texture's current storage.
+     *
+     * <p>Reallocating frees the old image and installs a new one. Any framebuffer that attached
+     * this texture still references the old, freed image, which no texture owns any more. GL has
+     * no such problem: an attachment names the texture object, so re-specifying it is visible to
+     * the framebuffer straight away.
+     */
+    @Inject(method = "allocateImage(III)V", at = @At("HEAD"), remap = false)
+    private void actinium$rememberReplacedImage(int width, int height, int vkFormat, CallbackInfo ci) {
+        VulkanModTextures.rememberImage(this);
+    }
+
+    @Inject(method = "allocateImage(III)V", at = @At("RETURN"), remap = false)
+    private void actinium$repointAttachments(int width, int height, int vkFormat, CallbackInfo ci) {
+        VulkanModTextures.repointAttachments(this);
     }
 
     /** Alignment is not tracked by the backend at all, so track it here. */

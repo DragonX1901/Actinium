@@ -80,6 +80,16 @@ neoForge {
             jvmArgument("-Dorg.lwjgl.system.stackSize=1024")
             // Vulkan validation layers in dev only. Costs ~30% CPU frame time.
             systemProperty("actinium.validation", "true")
+
+            // Boot straight into a save instead of clicking through menus:
+            //   ./gradlew runClient -PquickPlay="New World"
+            // Reproducing a rendering bug needs the client on screen, but it does not need a
+            // human driving the main menu, and synthetic clicks aimed at someone else's
+            // desktop are worse than a launch flag.
+            val quickPlay = project.findProperty("quickPlay") as String?
+            if (quickPlay != null) {
+                programArguments.addAll("--quickPlaySingleplayer", quickPlay)
+            }
         }
         register("server") {
             server()

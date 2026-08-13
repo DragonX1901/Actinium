@@ -2,6 +2,7 @@ package net.actinium.mixin.vulkanmod;
 
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkCommandBuffer;
+import net.actinium.compat.VulkanModTextures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
@@ -57,7 +58,10 @@ public abstract class VulkanImageMixin {
             if (!actinium$warned) {
                 actinium$warned = true;
                 ACTINIUM$LOGGER.warn("Skipped an image barrier for a destroyed or uncreated "
-                        + "VkImage. A mod is transitioning a render target it already released.");
+                        + "VkImage ({}). Layout {} -> {}. Skipping keeps the process alive but "
+                        + "leaves the image in the wrong layout, so the frame that uses it is "
+                        + "rejected with VK_ERROR_DEVICE_LOST.",
+                        VulkanModTextures.describe(image), oldLayout, newLayout);
             }
             ci.cancel();
         }
