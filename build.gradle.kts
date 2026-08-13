@@ -108,74 +108,52 @@ neoForge {
 sourceSets.main.get().resources.srcDir("src/generated/resources")
 
 dependencies {
-    // ---- Vulkan core -------------------------------------------------------
-    // lwjgl-vulkan has NO native artifact on Windows/Linux: it dlopen()s the
-    // system loader (vulkan-1.dll / libvulkan.so.1). macOS is the exception and
-    // requires the MoltenVK natives classifier.
-    compileOnly("org.lwjgl:lwjgl-vulkan:$lwjgl_version")
-    runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjgl_version")
-    if (hostNatives.startsWith("natives-macos")) {
-        runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjgl_version:$hostNatives")
-    }
-
-    // ---- VMA: suballocator, removes the 4096-allocation driver limit -------
-    implementation("org.lwjgl:lwjgl-vma:$lwjgl_version")
-    runtimeOnly("org.lwjgl:lwjgl-vma:$lwjgl_version:$hostNatives")
-
-    // ---- shaderc: runtime GLSL -> SPIR-V for vanilla + third-party shaders --
-    implementation("org.lwjgl:lwjgl-shaderc:$lwjgl_version")
-    runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjgl_version:$hostNatives")
-
-    // ---- spirv-cross: reflection (descriptor set layout discovery) and the
-    //      GLSL-mod fallback path (SPIR-V -> patched GLSL -> shaderc).
-    implementation("org.lwjgl:lwjgl-spvc:$lwjgl_version")
-    runtimeOnly("org.lwjgl:lwjgl-spvc:$lwjgl_version:$hostNatives")
-
-    // ---- Bytecode interception --------------------------------------------
-    // ASM and ModLauncher come from the NeoForge dev bundle; declared compileOnly
-    // so we never shade a second copy into the mod jar.
-    compileOnly("org.ow2.asm:asm:9.7")
-    compileOnly("org.ow2.asm:asm-tree:9.7")
-    compileOnly("org.ow2.asm:asm-commons:9.7")
-
-    // lwjgl-opengl is on the classpath already (Minecraft uses it); we compile
-    // against it to reference GL constants inside the interop layer.
-    compileOnly("org.lwjgl:lwjgl-opengl:$lwjgl_version")
-
-    // ---- Dev runtime -------------------------------------------------------
-    // NOTE: nothing is added to `additionalRuntimeClasspath` here on purpose.
+    // ---- Vulkan, VMA and shaderc ------------------------------------------
     //
-    // ModDevGradle builds the runClient classpath from its own configurations rather than
-    // from runtimeClasspath, so `runtimeOnly` alone never reaches the game. The obvious fix
-    // is to add the Vulkan stack to `additionalRuntimeClasspath` — but VulkanModNeoForge
-    // already extracts lwjgl-vulkan, lwjgl-vma and lwjgl-shaderc from its own jar and
-    // registers them as NeoForge mod files (`vulkan_lwjgl`, `vma`, `vulkan_shaderc`).
-    // Adding them again produces:
+    // compileOnly, deliberately. VulkanMod is a required dependency and it extracts these
+    // modules from its own jar at startup, registering them as NeoForge mod files
+    // (vulkan_lwjgl, vma, vulkan_shaderc). Shipping a second copy is not redundant, it is
+    // fatal:
     //
     //   ResolutionException: Modules vulkan_lwjgl and org.lwjgl.vulkan
     //                        export package org.lwjgl.vulkan.video
     //
-    // So in dev, VulkanMod supplies the native stack. Actinium compiles against it
-    // (compileOnly above) and finds it at runtime through VulkanMod's modules.
+    // That also means no jarJar block and no native classifiers. The published jar is pure
+    // Java and a few hundred kilobytes.
+    compileOnly("org.lwjgl:lwjgl-vulkan:$lwjgl_version")
+    compileOnly("org.lwjgl:lwjgl-vma:$lwjgl_version")
+    compileOnly("org.lwjgl:lwjgl-shaderc:$lwjgl_version")
+
+    // lwjgl-opengl and LWJGL core ship with Minecraft; referenced for GL constants and the
+    // bridge context.
+    compileOnly("org.lwjgl:lwjgl-opengl:$lwjgl_version")
+
+    // ---- Bytecode interception --------------------------------------------
+    // ASM comes from the NeoForge dev bundle; compileOnly so no second copy is shaded.
+    compileOnly("org.ow2.asm:asm:9.7")
+    compileOnly("org.ow2.asm:asm-tree:9.7")
+    compileOnly("org.ow2.asm:asm-commons:9.7")
 }
 
 // ---------------------------------------------------------------------------
-// Production packaging.
-//
-// `implementation` is dev-classpath only: in a real installation the mod jar
-// must carry LWJGL's Vulkan modules itself, for every platform, or the mod
-// hard-crashes on NoClassDefFoundError. Enable jarJar for release builds.
-// Commented out because it multiplies build time ~6x and needs all natives
-// resolvable offline.
+// The smoke test runs outside the game, so it needs the real artifacts rather
+// than the compileOnly stubs, natives included.
 // ---------------------------------------------------------------------------
-// dependencies {
-//     for (module in listOf("lwjgl-vma", "lwjgl-shaderc", "lwjgl-spvc")) {
-//         jarJar(implementation("org.lwjgl:$module") { version { strictly("[$lwjgl_version,3.4)"); prefer(lwjgl_version) } })
-//         for (n in listOf("natives-windows", "natives-linux", "natives-macos", "natives-macos-arm64")) {
-//             jarJar(runtimeOnly("org.lwjgl:$module::$n") { version { strictly("[$lwjgl_version,3.4)"); prefer(lwjgl_version) } })
-//         }
-//     }
-// }
+val smokeTestRuntime: Configuration by configurations.creating
+
+dependencies {
+    smokeTestRuntime("org.lwjgl:lwjgl:$lwjgl_version")
+    smokeTestRuntime("org.lwjgl:lwjgl:$lwjgl_version:$hostNatives")
+    smokeTestRuntime("org.lwjgl:lwjgl-glfw:$lwjgl_version")
+    smokeTestRuntime("org.lwjgl:lwjgl-glfw:$lwjgl_version:$hostNatives")
+    smokeTestRuntime("org.lwjgl:lwjgl-vulkan:$lwjgl_version")
+    smokeTestRuntime("org.lwjgl:lwjgl-vma:$lwjgl_version")
+    smokeTestRuntime("org.lwjgl:lwjgl-vma:$lwjgl_version:$hostNatives")
+    smokeTestRuntime("org.lwjgl:lwjgl-shaderc:$lwjgl_version")
+    smokeTestRuntime("org.lwjgl:lwjgl-shaderc:$lwjgl_version:$hostNatives")
+    smokeTestRuntime("org.ow2.asm:asm:9.7")
+    smokeTestRuntime("org.ow2.asm:asm-tree:9.7")
+}
 
 // ---------------------------------------------------------------------------
 // Standalone verification. Runs the Vulkan bootstrap, the GLSL -> SPIR-V path and
@@ -184,15 +162,6 @@ dependencies {
 //
 //   ./gradlew smokeTest
 // ---------------------------------------------------------------------------
-val smokeTestRuntime: Configuration by configurations.creating
-
-dependencies {
-    // ASM is compileOnly for the mod (NeoForge provides it); the smoke test runs
-    // outside the game and has to bring its own.
-    smokeTestRuntime("org.ow2.asm:asm:9.7")
-    smokeTestRuntime("org.ow2.asm:asm-tree:9.7")
-}
-
 tasks.register<JavaExec>("smokeTest") {
     group = "verification"
     description = "Verifies Vulkan init, shader compilation and GL call redirection without Minecraft."
@@ -204,6 +173,11 @@ tasks.register<JavaExec>("smokeTest") {
     // See ActiniumMixinPlugin: LWJGL reads this once, into a static final, when MemoryStack
     // loads. 64 KB is not enough to enumerate device extensions on a multi-GPU machine.
     systemProperty("org.lwjgl.system.stackSize", "1024")
+    // CI has no GPU and no display, so the Vulkan section is skipped there. The pixel
+    // converter, bytecode and shader checks still run and are the ones most likely to
+    // regress from an ordinary edit.
+    systemProperty("actinium.headless",
+            (project.findProperty("actinium.headless") as String? ?: "false"))
 }
 
 tasks.register("listConfigs") {

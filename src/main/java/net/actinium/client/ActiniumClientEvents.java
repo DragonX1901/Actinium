@@ -53,10 +53,16 @@ public final class ActiniumClientEvents {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         if (!InteropSelfTest.hasRun()) {
-            // Order matters. The GL context has to exist before anything probes GL, and mods
-            // probe on their first render tick.
+            // The GL context bridge is not gated: mods call LWJGL directly whether or not
+            // Actinium's translation layer is enabled, and without a context they crash. The
+            // self-test is gated, because it allocates on the device to prove a path that is
+            // switched off.
             GLContextBridge.install();
-            InteropSelfTest.runOnce();
+            if (net.actinium.ActiniumConfig.interopEnabled.get()) {
+                InteropSelfTest.runOnce();
+            } else {
+                InteropSelfTest.skip();
+            }
         } else {
             // Something else may have unbound the context for this thread; re-bind cheaply.
             GLContextBridge.makeCurrent();

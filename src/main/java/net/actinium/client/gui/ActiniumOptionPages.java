@@ -240,43 +240,22 @@ public final class ActiniumOptionPages {
         Option<Boolean> uniqueOpaqueLayer = vkSwitch(vk, "uniqueOpaqueLayer", true,
                 "actinium.options.uniqueOpaqueLayer", OptionImpact.MEDIUM, true);
 
-        Option<ActiniumClient.InteropMode> interopMode =
-                OptionImpl.<ActiniumOptions, ActiniumClient.InteropMode>of(actinium)
-                        .name(Component.translatable("actinium.options.interopMode"))
-                        .tooltip(Component.translatable("actinium.options.interopMode.tooltip"))
-                        .impact(OptionImpact.VARIES)
-                        .control(CyclingControl.ofEnum(ActiniumClient.InteropMode.class,
-                                mode -> Component.translatable(
-                                        "actinium.options.interopMode." + mode.name().toLowerCase())))
-                        .binding(o -> o.interopMode, (o, v) -> o.interopMode = v)
-                        .flags(OptionFlag.REQUIRES_GAME_RESTART)
-                        .availableWhen(requiresActiniumBackend())
-                        .build();
-
-        Option<Boolean> validation = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
-                .name(Component.translatable("actinium.options.validationLayers"))
-                .tooltip(Component.translatable("actinium.options.validationLayers.tooltip"))
-                .impact(OptionImpact.EXTREME)
+        // One real switch instead of three rows that could never take effect. The old page
+        // offered an interop mode, validation layers and shader debug info, all of which
+        // needed Actinium's own backend, which does not run. Greying them out with an
+        // explanation is better than lying, but not offering them at all is better still.
+        Option<Boolean> interopEnabled = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
+                .name(Component.translatable("actinium.options.interopEnabled"))
+                .tooltip(Component.translatable("actinium.options.interopEnabled.tooltip"))
+                .impact(OptionImpact.VARIES)
                 .control(new TickBoxControl())
-                .binding(o -> o.validationLayers, (o, v) -> o.validationLayers = v)
+                .binding(o -> o.interopEnabled, (o, v) -> o.interopEnabled = v)
                 .flags(OptionFlag.REQUIRES_GAME_RESTART)
-                .availableWhen(requiresActiniumBackend())
-                .build();
-
-        Option<Boolean> shaderDebug = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
-                .name(Component.translatable("actinium.options.shaderDebugInfo"))
-                .tooltip(Component.translatable("actinium.options.shaderDebugInfo.tooltip"))
-                .impact(OptionImpact.MEDIUM)
-                .control(new TickBoxControl())
-                .binding(o -> o.shaderDebugInfo, (o, v) -> o.shaderDebugInfo = v)
-                .flags(OptionFlag.REQUIRES_GAME_RESTART)
-                .availableWhen(requiresActiniumBackend())
                 .build();
 
         return OptionPage.of("actinium.options.pages.advanced",
                 OptionGroup.of("actinium.options.group.terrain", uniqueOpaqueLayer),
-                OptionGroup.of("actinium.options.group.interop", interopMode),
-                OptionGroup.of("actinium.options.group.debug", validation, shaderDebug));
+                OptionGroup.of("actinium.options.group.interop", interopEnabled));
     }
 
     /** Shorthand for the many VulkanMod booleans that differ only in name and reload behaviour. */

@@ -26,7 +26,6 @@
   "actinium.options.group.cpu": "CPU",
   "actinium.options.group.memory": "Memory",
   "actinium.options.group.interop": "OpenGL Interoperability",
-  "actinium.options.group.debug": "Debugging",
   "actinium.options.renderDistance.tooltip": "How far the world is drawn. The single largest cost in the frame: doubling it roughly quadruples the geometry the GPU has to consider.",
   "actinium.options.simulationDistance.tooltip": "How far entities and block updates keep running. Costs CPU, not GPU, so lowering it helps when the frame rate stutters rather than sags.",
   "actinium.options.framerateLimit.tooltip": "Caps how many frames are drawn per second. A cap below your display's refresh rate lowers power draw and fan noise at no visual cost.",
@@ -86,5 +85,7 @@
   "actinium.options.frameQueue": "Frame Queue Size",
   "actinium.options.frameQueue.tooltip": "How many frames the CPU may run ahead of the GPU. Higher smooths out frame time spikes and adds input latency. Rebuilds the swapchain when changed.",
   "actinium.options.uniqueOpaqueLayer": "Unified Opaque Layer",
-  "actinium.options.uniqueOpaqueLayer.tooltip": "Merges solid and cutout terrain into one render pass. Fewer pipeline switches per frame. Turn it off if blocks with cutout textures render wrongly."
+  "actinium.options.uniqueOpaqueLayer.tooltip": "Merges solid and cutout terrain into one render pass. Fewer pipeline switches per frame. Turn it off if blocks with cutout textures render wrongly.",
+  "actinium.options.interopEnabled": "OpenGL Interception (experimental)",
+  "actinium.options.interopEnabled.tooltip": "Intercept OpenGL calls other mods make directly to LWJGL. This does not render anything yet: buffers and textures reach the GPU, but no draw call has ever gone through the layer. Leave it off unless you are developing Actinium."
 }

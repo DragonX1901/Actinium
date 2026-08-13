@@ -35,7 +35,16 @@ public final class VulkanSmokeTest {
         run("pixel converter", VulkanSmokeTest::testPixelConverter);
         run("bytecode transformer", VulkanSmokeTest::testTransformer);
         run("GLSL patch + SPIR-V compile", VulkanSmokeTest::testShaderPipeline);
-        run("Vulkan bootstrap + present", VulkanSmokeTest::testVulkan);
+
+        // shaderc is a native library but needs no device, so it stays in the headless set.
+        // Creating a window and a Vulkan device does not survive a hosted CI runner.
+        if (Boolean.getBoolean("actinium.headless")) {
+            System.out.println("=== Vulkan bootstrap + present ===");
+            System.out.println("  SKIPPED (actinium.headless): needs a GPU and a display");
+            System.out.println();
+        } else {
+            run("Vulkan bootstrap + present", VulkanSmokeTest::testVulkan);
+        }
 
         System.out.println();
         if (failures == 0) {

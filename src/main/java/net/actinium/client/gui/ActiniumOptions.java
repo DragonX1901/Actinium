@@ -18,7 +18,9 @@ public final class ActiniumOptions {
     }
 
     // --- Interop ---------------------------------------------------------
-    public ActiniumClient.InteropMode interopMode = ActiniumClient.InteropMode.BRIDGE;
+    /** Experimental. The translation layer does not render; see ActiniumConfig. */
+    public boolean interopEnabled = false;
+    public ActiniumClient.InteropMode interopMode = ActiniumClient.InteropMode.OFF;
 
     // --- Rendering -------------------------------------------------------
     public boolean vsync = true;
@@ -43,6 +45,7 @@ public final class ActiniumOptions {
         if (!ActiniumConfig.SPEC.isLoaded()) {
             return; // config file not parsed yet; defaults stand until it is
         }
+        interopEnabled = ActiniumConfig.interopEnabled.get();
         interopMode = ActiniumConfig.interopMode.get();
         validationLayers = ActiniumConfig.validationLayers.get();
         shaderDebugInfo = ActiniumConfig.shaderDebugInfo.get();
@@ -54,6 +57,7 @@ public final class ActiniumOptions {
         if (!ActiniumConfig.SPEC.isLoaded()) {
             return;
         }
+        ActiniumConfig.interopEnabled.set(interopEnabled);
         ActiniumConfig.interopMode.set(interopMode);
         ActiniumConfig.validationLayers.set(validationLayers);
         ActiniumConfig.shaderDebugInfo.set(shaderDebugInfo);

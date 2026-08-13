@@ -36,6 +36,11 @@ public final class InteropSelfTest {
         return done;
     }
 
+    /** Marks the test as handled without running it, when the interop layer is disabled. */
+    public static void skip() {
+        done = true;
+    }
+
     /** Safe to call every tick; does its work once. */
     public static void runOnce() {
         if (done) {

@@ -31,12 +31,18 @@ versionRange = "${minecraft_version_range}"
 ordering = "NONE"
 side = "CLIENT"
 
-# Actinium replaces the OpenGL backend outright. Declaring an incompatibility with mods that
-# assume a live GL context is more honest than letting them crash three minutes into a world.
-#[[dependencies."${mod_id}"]]
-#modId = "oculus"
-#type = "incompatible"
-#reason = "Shader pack mods require a real OpenGL context; run Actinium in BRIDGE mode instead."
-#versionRange = "[0,)"
-#ordering = "NONE"
-#side = "CLIENT"
+# Required in fact, not just in spirit. Actinium configures and patches a Vulkan backend; it
+# does not provide one. Without VulkanMod the settings screen has nothing to bind to and every
+# compatibility mixin is skipped, so declaring this optional would ship a mod that silently
+# does nothing.
+[[dependencies."${mod_id}"]]
+modId = "vulkanmod"
+type = "required"
+reason = "Actinium configures and patches VulkanMod's renderer; it does not replace it."
+versionRange = "[0.5,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+# Shader pack mods drive the whole pipeline through OpenGL and expect a real context. They are
+# incompatible with a Vulkan backend regardless of Actinium, so the declaration belongs on
+# VulkanMod rather than here.
