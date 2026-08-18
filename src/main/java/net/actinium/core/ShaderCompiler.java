@@ -2,6 +2,7 @@ package net.actinium.core;
 
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.shaderc.Shaderc;
+import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,12 +97,16 @@ public final class ShaderCompiler {
     }
 
     public long createModule(VkContext ctx, ByteBuffer spirv) {
+        return createModule(ctx.device(), spirv);
+    }
+
+    public long createModule(VkDevice device, ByteBuffer spirv) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkShaderModuleCreateInfo info = VkShaderModuleCreateInfo.calloc(stack)
                     .sType$Default()
                     .pCode(spirv);
             LongBuffer pModule = stack.mallocLong(1);
-            check(vkCreateShaderModule(ctx.device(), info, null, pModule), "vkCreateShaderModule");
+            check(vkCreateShaderModule(device, info, null, pModule), "vkCreateShaderModule");
             return pModule.get(0);
         }
     }

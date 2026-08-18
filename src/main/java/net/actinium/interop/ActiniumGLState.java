@@ -4,8 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -26,12 +29,14 @@ public final class ActiniumGLState {
     private final Map<Integer, GLBuffer> buffers = new HashMap<>();
     private final Map<Integer, GLVertexArray> vertexArrays = new HashMap<>();
     private final Map<Integer, GLProgram> programs = new HashMap<>();
+    private final Map<Integer, GLShader> shaders = new HashMap<>();
     private final Map<Integer, GLFramebuffer> framebuffers = new HashMap<>();
 
     private int activeTextureUnit = 0;
     private final int[] boundTexture2D = new int[MAX_TEXTURE_UNITS];
     private int boundArrayBuffer = 0;
     private int boundElementArrayBuffer = 0;
+    private int boundUniformBuffer = 0;
     private int boundVertexArray = 0;
     private int boundProgram = 0;
     private int boundDrawFramebuffer = 0;
@@ -125,6 +130,20 @@ public final class ActiniumGLState {
         public int divisor;
     }
 
+    public static final class GLShader {
+        public final int name;
+        public final int type;
+        public String source = "";
+        public boolean compiled;
+        public String infoLog = "";
+        public boolean deleted;
+
+        GLShader(int name, int type) {
+            this.name = name;
+            this.type = type;
+        }
+    }
+
     public static final class GLProgram {
         public final int name;
         public long vertexModule;
@@ -135,6 +154,14 @@ public final class ActiniumGLState {
         public ByteBuffer uniformStaging;
         public boolean uniformsDirty;
         public final Map<String, Integer> uniformOffsets = new HashMap<>();
+
+        public final List<Integer> attachedShaders = new ArrayList<>();
+        public final Map<String, Integer> boundAttributes = new LinkedHashMap<>();
+        public final Map<String, Integer> attributeLocations = new LinkedHashMap<>();
+        public final Map<String, Integer> samplerBindings = new LinkedHashMap<>();
+        public int[] samplerUnits = new int[0];
+        public boolean linked;
+        public String infoLog = "";
 
         GLProgram(int name) {
             this.name = name;
@@ -179,6 +206,12 @@ public final class ActiniumGLState {
         return name;
     }
 
+    public int createShader(int type) {
+        int name = nextName.getAndIncrement();
+        shaders.put(name, new GLShader(name, type));
+        return name;
+    }
+
     public int createProgram() {
         int name = nextName.getAndIncrement();
         programs.put(name, new GLProgram(name));
@@ -199,6 +232,22 @@ public final class ActiniumGLState {
 
     public GLProgram program(int name) {
         return programs.get(name);
+    }
+
+    public GLShader shader(int name) {
+        return shaders.get(name);
+    }
+
+    public void removeShader(int name) {
+        shaders.remove(name);
+    }
+
+    public void removeProgram(int name) {
+        programs.remove(name);
+        if (boundProgram == name) {
+            boundProgram = 0;
+            generation++;
+        }
     }
 
     public GLFramebuffer framebuffer(int name) {
@@ -234,13 +283,18 @@ public final class ActiniumGLState {
                     vao.elementBuffer = name;
                 }
             }
+            case GLConstants.GL_UNIFORM_BUFFER -> boundUniformBuffer = name;
             default -> LOGGER.debug("bindBuffer on unhandled target 0x{}", Integer.toHexString(target));
         }
     }
 
     public void bindVertexArray(int name) {
-        boundVertexArray = name;
-        generation++;
+        if (boundVertexArray != name) {
+            boundVertexArray = name;
+            GLVertexArray vao = vertexArrays.get(name);
+            boundElementArrayBuffer = vao != null ? vao.elementBuffer : 0;
+            generation++;
+        }
     }
 
     public void useProgram(int name) {
@@ -417,6 +471,10 @@ public final class ActiniumGLState {
 
     public int boundElementArrayBuffer() {
         return boundElementArrayBuffer;
+    }
+
+    public int boundUniformBuffer() {
+        return boundUniformBuffer;
     }
 
     public int boundVertexArray() {

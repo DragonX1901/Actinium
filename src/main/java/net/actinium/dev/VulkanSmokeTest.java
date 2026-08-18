@@ -2,6 +2,8 @@ package net.actinium.dev;
 
 import net.actinium.core.FrameRenderer;
 import net.actinium.core.GlslPatcher;
+import net.actinium.interop.ActiniumGL;
+import net.actinium.interop.GLConstants;
 import net.actinium.interop.GLFormats;
 import net.actinium.core.ShaderCompiler;
 import net.actinium.core.VkContext;
@@ -15,6 +17,8 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.nio.ByteBuffer;
+import java.util.EnumMap;
+import java.util.Map;
 
 public final class VulkanSmokeTest {
     private static int failures;
@@ -25,6 +29,8 @@ public final class VulkanSmokeTest {
         run("pixel converter", VulkanSmokeTest::testPixelConverter);
         run("bytecode transformer", VulkanSmokeTest::testTransformer);
         run("GLSL patch + SPIR-V compile", VulkanSmokeTest::testShaderPipeline);
+        run("GL program conversion", VulkanSmokeTest::testProgramConversion);
+        run("GL shader objects", VulkanSmokeTest::testShaderObjects);
         run("GL format tables", VulkanSmokeTest::testFormatTables);
         if (!Boolean.getBoolean("actinium.headless")) {
             run("GL bridge context", VulkanSmokeTest::testBridgeContext);
@@ -337,7 +343,7 @@ public final class VulkanSmokeTest {
             System.out.println("  fragment: " + fragment.uniformBlock().size() + " UBO member(s), "
                     + fragment.samplers().size() + " sampler(s)");
             assertTrue(fragment.samplers().contains("Sampler0"), "sampler must be detected");
-            assertTrue(fragment.source().contains("layout(set = 1, binding = 0) uniform sampler2D Sampler0"),
+            assertTrue(fragment.source().contains("layout(set = 0, binding = 1) uniform sampler2D Sampler0"),
                     "sampler must get an explicit binding");
             assertTrue(!fragment.source().contains("gl_FragColor"), "gl_FragColor must be replaced");
             assertTrue(!fragment.source().contains("texture2D("), "texture2D must be modernised");
@@ -361,6 +367,122 @@ public final class VulkanSmokeTest {
         } finally {
             compiler.destroy();
         }
+    }
+
+    private static void testProgramConversion() {
+        Map<ShaderCompiler.Stage, String> sources = new EnumMap<>(ShaderCompiler.Stage.class);
+        sources.put(ShaderCompiler.Stage.VERTEX, VANILLA_STYLE_VERTEX);
+        sources.put(ShaderCompiler.Stage.FRAGMENT, VANILLA_STYLE_FRAGMENT);
+
+        GlslPatcher.ProgramInterface iface = GlslPatcher.inspect(sources, Map.of("Position", 3));
+
+        System.out.println("  uniforms: " + iface.uniformBlock().size() + " in "
+                + iface.uniformBlockSize() + " bytes");
+        for (GlslPatcher.UniformMember m : iface.uniformBlock()) {
+            System.out.println("    " + m.type() + " " + m.name() + " @ " + m.offsetBytes());
+        }
+
+        assertTrue(iface.uniformBlock().size() == 5,
+                "both stages must share one block, got " + iface.uniformBlock().size());
+        assertTrue(offsetOf(iface, "ColorModulator") > offsetOf(iface, "ChunkOffset"),
+                "fragment uniforms must be laid out after the vertex ones");
+        assertTrue(iface.uniformBlockSize() % 16 == 0, "std140 blocks are padded to 16 bytes");
+
+        assertTrue(iface.samplers().size() == 1
+                        && iface.samplers().get(0).binding() == GlslPatcher.FIRST_SAMPLER_BINDING,
+                "samplers start at binding " + GlslPatcher.FIRST_SAMPLER_BINDING);
+
+        assertTrue(iface.attributes().get("Position") == 3, "a bound attribute location must be kept");
+        assertTrue(iface.attributes().get("UV0") != 3 && iface.attributes().get("Color") != 3,
+                "generated attribute locations must not collide with a bound one");
+
+        String vertex = GlslPatcher.patch("convert.vsh", VANILLA_STYLE_VERTEX,
+                ShaderCompiler.Stage.VERTEX, iface);
+        String fragment = GlslPatcher.patch("convert.fsh", VANILLA_STYLE_FRAGMENT,
+                ShaderCompiler.Stage.FRAGMENT, iface);
+
+        for (String varying : new String[]{"texCoord0", "vertexColor"}) {
+            int location = iface.varyings().get(varying);
+            assertTrue(vertex.contains("layout(location = " + location + ") out")
+                            && fragment.contains("layout(location = " + location + ") in"),
+                    varying + " must land on the same location in both stages");
+        }
+        assertTrue(vertex.contains("layout(location = 3) in vec3 Position;"),
+                "vertex input must use the bound location");
+
+        ShaderCompiler compiler = new ShaderCompiler(true);
+        try {
+            ByteBuffer vertexSpirv = compiler.compile("convert.vsh", vertex, ShaderCompiler.Stage.VERTEX);
+            ByteBuffer fragmentSpirv = compiler.compile("convert.fsh", fragment, ShaderCompiler.Stage.FRAGMENT);
+            System.out.println("  converted program: " + vertexSpirv.remaining() + " + "
+                    + fragmentSpirv.remaining() + " bytes of SPIR-V");
+            assertTrue(vertexSpirv.getInt(0) == 0x07230203 && fragmentSpirv.getInt(0) == 0x07230203,
+                    "both stages must produce SPIR-V");
+        } finally {
+            compiler.destroy();
+        }
+    }
+
+    private static void testShaderObjects() {
+        int vertex = ActiniumGL.glCreateShader(GLConstants.GL_VERTEX_SHADER);
+        ActiniumGL.glShaderSource(vertex, VANILLA_STYLE_VERTEX);
+        ActiniumGL.glCompileShader(vertex);
+        assertTrue(ActiniumGL.glGetShaderi(vertex, GLConstants.GL_COMPILE_STATUS) == GLConstants.GL_TRUE,
+                "vertex shader should compile: " + ActiniumGL.glGetShaderInfoLog(vertex));
+
+        int fragment = ActiniumGL.glCreateShader(GLConstants.GL_FRAGMENT_SHADER);
+        ActiniumGL.glShaderSource(fragment, VANILLA_STYLE_FRAGMENT);
+        ActiniumGL.glCompileShader(fragment);
+        assertTrue(ActiniumGL.glGetShaderi(fragment, GLConstants.GL_COMPILE_STATUS) == GLConstants.GL_TRUE,
+                "fragment shader should compile: " + ActiniumGL.glGetShaderInfoLog(fragment));
+
+        int empty = ActiniumGL.glCreateShader(GLConstants.GL_VERTEX_SHADER);
+        ActiniumGL.glCompileShader(empty);
+        assertTrue(ActiniumGL.glGetShaderi(empty, GLConstants.GL_COMPILE_STATUS) == GLConstants.GL_FALSE,
+                "a shader with no source must not report success");
+        System.out.println("  empty shader rejected: " + ActiniumGL.glGetShaderInfoLog(empty));
+
+        int program = ActiniumGL.glCreateProgram();
+        ActiniumGL.glAttachShader(program, vertex);
+        ActiniumGL.glAttachShader(program, fragment);
+        ActiniumGL.glAttachShader(program, fragment);
+        assertTrue(ActiniumGL.glGetProgrami(program, GLConstants.GL_ATTACHED_SHADERS) == 2,
+                "attaching the same shader twice must not duplicate it");
+        ActiniumGL.glBindAttribLocation(program, 3, "Position");
+
+        ActiniumGL.glLinkProgram(program);
+        boolean linked = ActiniumGL.glGetProgrami(program, GLConstants.GL_LINK_STATUS) == GLConstants.GL_TRUE;
+        if (linked) {
+            System.out.println("  linked against a live Vulkan device");
+            assertTrue(ActiniumGL.glGetAttribLocation(program, "Position") == 3,
+                    "the bound attribute location must survive linking");
+            assertTrue(ActiniumGL.glGetUniformLocation(program, "ProjMat") == 64,
+                    "uniform locations are byte offsets into the block");
+            assertTrue(ActiniumGL.glGetUniformLocation(program, "Sampler0") > 0,
+                    "samplers need a location of their own");
+            assertTrue(ActiniumGL.glGetUniformLocation(program, "NotThere") == -1,
+                    "an unknown uniform must report -1");
+        } else {
+            String log = ActiniumGL.glGetProgramInfoLog(program);
+            System.out.println("  no Vulkan backend, link reported: " + log);
+            assertTrue(!log.isEmpty(), "a failed link must leave an info log behind");
+        }
+
+        ActiniumGL.glDeleteShader(vertex);
+        ActiniumGL.glDeleteShader(fragment);
+        ActiniumGL.glDeleteShader(empty);
+        ActiniumGL.glDeleteProgram(program);
+        assertTrue(ActiniumGL.glGetProgrami(program, GLConstants.GL_LINK_STATUS) == 0,
+                "a deleted program must be forgotten");
+    }
+
+    private static int offsetOf(GlslPatcher.ProgramInterface iface, String name) {
+        for (GlslPatcher.UniformMember member : iface.uniformBlock()) {
+            if (member.name().equals(name)) {
+                return member.offsetBytes();
+            }
+        }
+        throw new AssertionError("uniform " + name + " was not collected");
     }
 
     private static void testVulkan() {

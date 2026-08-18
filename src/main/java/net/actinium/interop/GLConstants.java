@@ -4,6 +4,9 @@ public final class GLConstants {
     private GLConstants() {
     }
 
+    public static final int GL_FALSE = 0;
+    public static final int GL_TRUE = 1;
+
     public static final int GL_POINTS = 0x0000;
     public static final int GL_LINES = 0x0001;
     public static final int GL_LINE_LOOP = 0x0002;
@@ -75,9 +78,23 @@ public final class GLConstants {
 
     public static final int GL_ARRAY_BUFFER = 0x8892;
     public static final int GL_ELEMENT_ARRAY_BUFFER = 0x8893;
+    public static final int GL_UNIFORM_BUFFER = 0x8A11;
     public static final int GL_STREAM_DRAW = 0x88E0;
     public static final int GL_STATIC_DRAW = 0x88E4;
     public static final int GL_DYNAMIC_DRAW = 0x88E8;
+
+    public static final int GL_FRAGMENT_SHADER = 0x8B30;
+    public static final int GL_VERTEX_SHADER = 0x8B31;
+    public static final int GL_COMPUTE_SHADER = 0x91B9;
+    public static final int GL_DELETE_STATUS = 0x8B80;
+    public static final int GL_COMPILE_STATUS = 0x8B81;
+    public static final int GL_LINK_STATUS = 0x8B82;
+    public static final int GL_VALIDATE_STATUS = 0x8B83;
+    public static final int GL_INFO_LOG_LENGTH = 0x8B84;
+    public static final int GL_ATTACHED_SHADERS = 0x8B85;
+    public static final int GL_ACTIVE_UNIFORMS = 0x8B86;
+    public static final int GL_ACTIVE_ATTRIBUTES = 0x8B89;
+    public static final int GL_SHADER_TYPE = 0x8B4F;
 
     public static final int GL_FRAMEBUFFER = 0x8D40;
     public static final int GL_READ_FRAMEBUFFER = 0x8CA8;

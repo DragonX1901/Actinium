@@ -138,6 +138,43 @@ chasing exceptions. Every one of them is silent:
 The last three were found by writing a known pattern into level 0, declaring level 1, and
 reading level 0 back. It came back as `00FFFFFF`.
 
+## Shaders in the interception layer
+
+The interception layer (`actinium.interopMode=TRANSLATE`) owns the GL shader objects itself, so
+a mod that builds a program the ordinary way gets Vulkan objects instead of a driver that is not
+there:
+
+| Call | What it does here |
+|---|---|
+| `glCreateShader`, `glShaderSource`, `glCompileShader` | keeps the source, resolves `#include` and `#moj_import`, and records whether the stage is one this layer can convert |
+| `glAttachShader`, `glBindAttribLocation`, `glLinkProgram` | converts the attached stages together and creates the shader modules, descriptor set layout and pipeline layout |
+| `glGetShaderi`, `glGetProgrami`, `glGetShaderInfoLog`, `glGetProgramInfoLog` | answer the way OpenGL does, so a mod that checks `GL_LINK_STATUS` reads a real answer and gets the reason in its log |
+| `glGetUniformLocation`, `glGetAttribLocation` | the byte offset into the uniform block, and the attribute location the conversion settled on |
+| `glUniform*` | writes into the program's staging block, uploaded through the per-frame uniform ring at draw time |
+| `glUseProgram`, `glDeleteProgram` | bind and destroy, waiting for the device to go idle before anything a frame may still be reading is freed |
+
+Conversion is a program-wide pass rather than a per-stage one, because the two are not
+independent:
+
+- **One uniform block.** Loose `uniform` declarations from every stage are collected into a
+  single `std140` block at set 0, binding 0. Patching each stage on its own would put the vertex
+  stage's first uniform and the fragment stage's first uniform at the same offset, and one of
+  them would read the other's bytes.
+- **One set of locations.** A varying gets its location from its name, so `out vec2 texCoord0`
+  in the vertex stage and `in vec2 texCoord0` in the fragment stage agree even when the two
+  files declare their varyings in a different order.
+- **Samplers after the block.** Each sampler gets its own binding, starting at 1, and
+  `glUniform1i` on a sampler picks the texture unit its descriptor reads from, rather than
+  writing four bytes into the uniform block.
+- **Bound attributes win.** A location set with `glBindAttribLocation` before the link is kept,
+  and generated locations are placed around it, `mat4` inputs taking the four they occupy.
+
+What it still refuses is what has no SPIR-V equivalent: fixed-function built-ins
+(`gl_ModelViewMatrix`, `gl_Vertex` and the rest) are rejected at conversion with the name of the
+one that was found, and a program that does not have both a vertex and a fragment stage does not
+link. A refusal leaves the previously linked program intact and the reason in the program's info
+log.
+
 ## Checking it
 
 The format tables are pure lookup and are verified headlessly:
@@ -149,6 +186,14 @@ The format tables are pure lookup and are verified headlessly:
 That check exists because a wrong entry otherwise shows up as a mod rendering the wrong colours,
 which needs both a screen and the right mod to notice. It round-trips every internal format
 through both directions and asserts that `GL_BGRA` does not collapse into `GL_RGBA`.
+
+The shader conversion is checked there too, and for the same reason. `GL program conversion`
+converts a vanilla-style vertex and fragment pair together and asserts the parts that only go
+wrong once something is on screen: one shared block, a varying on the same location in both
+stages, a bound attribute location that survived, and SPIR-V out of both stages. `GL shader
+objects` drives the same program through the GL entry points a mod would call, and on a machine
+with no Vulkan device it asserts the failure is the reported kind, `GL_LINK_STATUS` false with a
+reason in the info log, rather than an exception out of a mod's shader loader.
 
 The rest needs the calls to actually happen, and no mod on hand makes most of them. A client run
 that reaches a world therefore proves only that nothing regressed, a mixin that silently failed

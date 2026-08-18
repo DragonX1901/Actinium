@@ -24,7 +24,6 @@ public final class ActiniumTranslator {
     }
 
     private final Map<ActiniumGLState.PipelineKey, Long> pipelineCache = new HashMap<>();
-    private final Map<Long, Long> samplerCache = new HashMap<>();
 
     private VkCommandBuffer currentCommandBuffer;
     private long currentRenderPass;
@@ -60,6 +59,28 @@ public final class ActiniumTranslator {
 
     public int drawsThisFrame() {
         return drawsThisFrame;
+    }
+
+    public void invalidateProgram(int program) {
+        VulkanBackend backend = VulkanBackend.get();
+        if (backend == null) {
+            pipelineCache.keySet().removeIf(key -> key.program() == program);
+            return;
+        }
+        boolean waited = false;
+        var iterator = pipelineCache.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<ActiniumGLState.PipelineKey, Long> entry = iterator.next();
+            if (entry.getKey().program() != program) {
+                continue;
+            }
+            if (!waited) {
+                vkDeviceWaitIdle(backend.device());
+                waited = true;
+            }
+            vkDestroyPipeline(backend.device(), entry.getValue(), null);
+            iterator.remove();
+        }
     }
 
     public void drawArrays(int mode, int first, int count) {
@@ -124,7 +145,8 @@ public final class ActiniumTranslator {
         }
         ActiniumGLState state = ActiniumGLState.get();
         ActiniumGLState.GLBuffer ebo = state.buffer(state.boundElementArrayBuffer());
-        if (ebo == null) {
+        if (ebo == null || ebo.vkBuffer == VK_NULL_HANDLE) {
+            LOGGER.warn("glDrawElementsInstanced with no element array buffer bound; skipping draw");
             return;
         }
         int vkIndexType = indexType(type);
@@ -226,8 +248,11 @@ public final class ActiniumTranslator {
             vkCmdSetViewport(cmd, 0, viewport);
 
             int[] sc = state.scissorEnabled() ? state.scissorBox() : vp;
+            int scissorY = state.scissorEnabled()
+                    ? Math.max(0, vp[1] + vp[3] - sc[1] - sc[3])
+                    : Math.max(0, vp[1]);
             VkRect2D.Buffer scissor = VkRect2D.calloc(1, stack);
-            scissor.offset().set(Math.max(0, sc[0]), Math.max(0, sc[1]));
+            scissor.offset().set(Math.max(0, sc[0]), scissorY);
             scissor.extent().set(Math.max(0, sc[2]), Math.max(0, sc[3]));
             vkCmdSetScissor(cmd, 0, scissor);
 
@@ -324,14 +349,6 @@ public final class ActiniumTranslator {
     }
 
     public void invalidateSampler(ActiniumGLState.GLTexture texture) {
-        Long sampler = samplerCache.remove(samplerKey(texture));
-        if (sampler != null) {
-            vkDestroySampler(VulkanBackend.require().device(), sampler, null);
-        }
         texture.vkSampler = VK_NULL_HANDLE;
-    }
-
-    private static long samplerKey(ActiniumGLState.GLTexture t) {
-        return ((long) t.minFilter << 48) ^ ((long) t.magFilter << 32) ^ ((long) t.wrapS << 16) ^ t.wrapT;
     }
 }

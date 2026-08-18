@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,76 +27,119 @@ public final class GlslPatcher {
     private static final List<String> SAMPLER_TYPES =
             List.of("sampler1D", "sampler2D", "sampler3D", "samplerCube", "sampler2DShadow", "sampler2DArray");
 
+    public static final int UNIFORM_BINDING = 0;
+    public static final int FIRST_SAMPLER_BINDING = 1;
+
+    private static final int MAX_ATTRIBUTE_LOCATIONS = 32;
+
     public record Patched(String source, List<UniformMember> uniformBlock, List<String> samplers) {
     }
 
     public record UniformMember(String type, String name, int arraySize, int offsetBytes, int sizeBytes) {
     }
 
+    public record Sampler(String type, String name, int binding, int count) {
+    }
+
+    public record ProgramInterface(List<UniformMember> uniformBlock, int uniformBlockSize, List<Sampler> samplers,
+                                   Map<String, Integer> attributes, Map<String, Integer> varyings,
+                                   Map<String, Integer> fragmentOutputs) {
+
+        public Sampler sampler(String name) {
+            for (Sampler s : samplers) {
+                if (s.name().equals(name)) {
+                    return s;
+                }
+            }
+            return null;
+        }
+    }
+
+    private record Declaration(String type, String name, String array) {
+    }
+
     private GlslPatcher() {
     }
 
     public static Patched patch(String name, String source, ShaderCompiler.Stage stage) {
+        Map<ShaderCompiler.Stage, String> single = new LinkedHashMap<>();
+        single.put(stage, source);
+        ProgramInterface iface = inspect(single, Map.of());
+
+        List<String> samplerNames = new ArrayList<>();
+        for (Sampler sampler : iface.samplers()) {
+            samplerNames.add(sampler.name());
+        }
+        return new Patched(patch(name, source, stage, iface), iface.uniformBlock(), samplerNames);
+    }
+
+    public static ProgramInterface inspect(Map<ShaderCompiler.Stage, String> sources,
+                                           Map<String, Integer> boundAttributes) {
+        List<UniformMember> members = new ArrayList<>();
+        List<Sampler> samplers = new ArrayList<>();
+        int offset = 0;
+
+        for (String source : sources.values()) {
+            Matcher m = UNIFORM.matcher(source);
+            while (m.find()) {
+                String type = m.group("type");
+                String name = m.group("name");
+                String array = m.group("array");
+                int count = arrayCount(array);
+
+                if (SAMPLER_TYPES.contains(type)) {
+                    if (!declared(samplers, name)) {
+                        samplers.add(new Sampler(type, name, FIRST_SAMPLER_BINDING + samplers.size(), count));
+                    }
+                    continue;
+                }
+                if (member(members, name) != null) {
+                    continue;
+                }
+
+                int elementSize = array == null ? std140Size(type) : align(std140Size(type), 16);
+                int size = elementSize * count;
+                offset = align(offset, std140Alignment(type));
+                members.add(new UniformMember(type, name, count, offset, size));
+                offset += size;
+            }
+        }
+
+        String vertex = sources.get(ShaderCompiler.Stage.VERTEX);
+        String fragment = sources.get(ShaderCompiler.Stage.FRAGMENT);
+
+        Map<String, Integer> attributes = new LinkedHashMap<>(boundAttributes);
+        assignAttributes(declarations(vertex, "in"), attributes);
+
+        Map<String, Integer> varyings = new LinkedHashMap<>();
+        assignSequential(declarations(vertex, "out"), varyings);
+        assignSequential(declarations(fragment, "in"), varyings);
+
+        Map<String, Integer> fragmentOutputs = new LinkedHashMap<>();
+        assignSequential(declarations(fragment, "out"), fragmentOutputs);
+
+        return new ProgramInterface(List.copyOf(members), align(offset, 16), List.copyOf(samplers),
+                Collections.unmodifiableMap(attributes), Collections.unmodifiableMap(varyings),
+                Collections.unmodifiableMap(fragmentOutputs));
+    }
+
+    public static String patch(String name, String source, ShaderCompiler.Stage stage, ProgramInterface iface) {
         Matcher ff = FIXED_FUNCTION.matcher(source);
         if (ff.find()) {
             throw new UnsupportedShaderException(name,
                     "uses fixed-function built-in " + ff.group() + "; no SPIR-V equivalent exists");
         }
 
-        String out = source;
-        out = VERSION.matcher(out).replaceFirst("#version 450 core");
+        String out = VERSION.matcher(source).replaceFirst("#version 450 core");
         if (!out.contains("#version")) {
             out = "#version 450 core\n" + out;
         }
 
-        Map<String, String[]> scalarUniforms = new LinkedHashMap<>();
-        List<String> samplers = new ArrayList<>();
-        StringBuilder stripped = new StringBuilder();
-        Matcher m = UNIFORM.matcher(out);
-        int last = 0;
-        while (m.find()) {
-            String type = m.group("type");
-            String uniformName = m.group("name");
-            String array = m.group("array");
-            stripped.append(out, last, m.start());
-            if (SAMPLER_TYPES.contains(type)) {
-                int binding = samplers.size();
-                samplers.add(uniformName);
-                stripped.append("layout(set = 1, binding = ").append(binding).append(") uniform ")
-                        .append(type).append(' ').append(uniformName)
-                        .append(array == null ? "" : array).append(';');
-            } else {
-                scalarUniforms.put(uniformName, new String[]{type, array});
-            }
-            last = m.end();
+        out = replaceUniforms(out, iface);
+        if (!iface.uniformBlock().isEmpty()) {
+            out = insertAfterVersion(out, uniformBlockSource(iface));
         }
-        stripped.append(out.substring(last));
-        out = stripped.toString();
-
-        List<UniformMember> members = new ArrayList<>();
-        if (!scalarUniforms.isEmpty()) {
-            StringBuilder block = new StringBuilder("layout(std140, set = 0, binding = 0) uniform ActiniumUniforms {\n");
-            int offset = 0;
-            for (Map.Entry<String, String[]> e : scalarUniforms.entrySet()) {
-                String type = e.getValue()[0];
-                String array = e.getValue()[1];
-                int count = array == null ? 1 : Integer.parseInt(array.replaceAll("\\D+", ""));
-
-                int elementSize = array == null ? std140Size(type)
-                        : (std140Size(type) + 15) / 16 * 16;
-                int size = elementSize * count;
-                int align = std140Alignment(type);
-                offset = align(offset, align);
-                members.add(new UniformMember(type, e.getKey(), count, offset, size));
-                offset += size;
-                block.append("    ").append(type).append(' ').append(e.getKey())
-                        .append(array == null ? "" : array).append(";\n");
-            }
-            block.append("};\n");
-            out = insertAfterVersion(out, block.toString());
-        }
-
-        out = assignVaryingLocations(out);
+        out = assignLocations(out, stage, iface);
         out = LEGACY_TEXTURE.matcher(out).replaceAll("texture(");
 
         if (stage == ShaderCompiler.Stage.FRAGMENT && out.contains("gl_FragColor")) {
@@ -103,15 +147,46 @@ public final class GlslPatcher {
             out = out.replace("gl_FragColor", "actiniumFragColor");
         }
 
-        LOGGER.debug("Patched {}: {} UBO member(s), {} sampler(s)", name, members.size(), samplers.size());
-        return new Patched(out, members, samplers);
+        LOGGER.debug("Patched {}: {} UBO member(s), {} sampler(s)", name,
+                iface.uniformBlock().size(), iface.samplers().size());
+        return out;
     }
 
-    private static String assignVaryingLocations(String source) {
-        String[] lines = source.split("\n", -1);
-        int nextIn = 0;
-        int nextOut = 0;
+    private static String replaceUniforms(String source, ProgramInterface iface) {
+        StringBuilder out = new StringBuilder(source.length());
+        Matcher m = UNIFORM.matcher(source);
+        int last = 0;
+        while (m.find()) {
+            out.append(source, last, m.start());
+            Sampler sampler = iface.sampler(m.group("name"));
+            if (sampler != null) {
+                out.append("layout(set = 0, binding = ").append(sampler.binding()).append(") uniform ")
+                        .append(sampler.type()).append(' ').append(sampler.name())
+                        .append(sampler.count() > 1 ? "[" + sampler.count() + "]" : "").append(';');
+            }
+            last = m.end();
+        }
+        out.append(source.substring(last));
+        return out.toString();
+    }
 
+    private static String uniformBlockSource(ProgramInterface iface) {
+        StringBuilder block = new StringBuilder("layout(std140, set = 0, binding = ")
+                .append(UNIFORM_BINDING).append(") uniform ActiniumUniforms {\n");
+        for (UniformMember member : iface.uniformBlock()) {
+            block.append("    ").append(member.type()).append(' ').append(member.name())
+                    .append(member.arraySize() > 1 ? "[" + member.arraySize() + "]" : "").append(";\n");
+        }
+        return block.append("};\n").toString();
+    }
+
+    private static String assignLocations(String source, ShaderCompiler.Stage stage, ProgramInterface iface) {
+        Map<String, Integer> inputs = stage == ShaderCompiler.Stage.VERTEX
+                ? iface.attributes() : iface.varyings();
+        Map<String, Integer> outputs = stage == ShaderCompiler.Stage.VERTEX
+                ? iface.varyings() : iface.fragmentOutputs();
+
+        String[] lines = source.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             if (line.contains("layout") || line.contains("uniform")) {
@@ -121,33 +196,119 @@ public final class GlslPatcher {
             if (!m.matches()) {
                 continue;
             }
-            boolean isInput = "in".equals(m.group("dir"));
-            int location = isInput ? nextIn : nextOut;
-            lines[i] = "layout(location = " + location + ") " + line.stripLeading();
-
-            int consumed = locationsConsumed(m.group("type"), m.group("array"));
-            if (isInput) {
-                nextIn += consumed;
-            } else {
-                nextOut += consumed;
+            Integer location = ("in".equals(m.group("dir")) ? inputs : outputs).get(m.group("name"));
+            if (location == null) {
+                continue;
             }
+            lines[i] = "layout(location = " + location + ") " + line.stripLeading();
         }
         return String.join("\n", lines);
     }
 
-    private static int locationsConsumed(String type, String array) {
-        int perElement = switch (type) {
+    private static List<Declaration> declarations(String source, String direction) {
+        if (source == null) {
+            return List.of();
+        }
+        List<Declaration> found = new ArrayList<>();
+        for (String line : source.split("\n", -1)) {
+            if (line.contains("layout") || line.contains("uniform")) {
+                continue;
+            }
+            Matcher m = VARYING.matcher(line);
+            if (m.matches() && direction.equals(m.group("dir"))) {
+                found.add(new Declaration(m.group("type"), m.group("name"), m.group("array")));
+            }
+        }
+        return found;
+    }
+
+    private static void assignAttributes(List<Declaration> declarations, Map<String, Integer> locations) {
+        boolean[] used = new boolean[MAX_ATTRIBUTE_LOCATIONS];
+        for (Declaration declaration : declarations) {
+            Integer bound = locations.get(declaration.name());
+            if (bound != null) {
+                mark(used, bound, locationsConsumed(declaration));
+            }
+        }
+        for (Declaration declaration : declarations) {
+            if (locations.containsKey(declaration.name())) {
+                continue;
+            }
+            int consumed = locationsConsumed(declaration);
+            int location = firstFree(used, consumed);
+            mark(used, location, consumed);
+            locations.put(declaration.name(), location);
+        }
+    }
+
+    private static void assignSequential(List<Declaration> declarations, Map<String, Integer> locations) {
+        int next = 0;
+        for (int location : locations.values()) {
+            next = Math.max(next, location + 1);
+        }
+        for (Declaration declaration : declarations) {
+            if (locations.containsKey(declaration.name())) {
+                continue;
+            }
+            locations.put(declaration.name(), next);
+            next += locationsConsumed(declaration);
+        }
+    }
+
+    private static int firstFree(boolean[] used, int span) {
+        for (int start = 0; start + span <= used.length; start++) {
+            boolean free = true;
+            for (int i = start; i < start + span; i++) {
+                free &= !used[i];
+            }
+            if (free) {
+                return start;
+            }
+        }
+        throw new UnsupportedShaderException("vertex inputs",
+                "needs more than " + MAX_ATTRIBUTE_LOCATIONS + " attribute locations");
+    }
+
+    private static void mark(boolean[] used, int start, int span) {
+        for (int i = start; i < Math.min(used.length, start + span); i++) {
+            used[i] = true;
+        }
+    }
+
+    private static int locationsConsumed(Declaration declaration) {
+        int perElement = switch (declaration.type()) {
             case "mat2" -> 2;
             case "mat3" -> 3;
             case "mat4" -> 4;
             default -> 1;
         };
+        return perElement * arrayCount(declaration.array());
+    }
+
+    private static int arrayCount(String array) {
         if (array == null) {
-            return perElement;
+            return 1;
         }
         String digits = array.replaceAll("\\D+", "");
-        int count = digits.isEmpty() ? 1 : Integer.parseInt(digits);
-        return perElement * count;
+        return digits.isEmpty() ? 1 : Integer.parseInt(digits);
+    }
+
+    private static boolean declared(List<Sampler> samplers, String name) {
+        for (Sampler sampler : samplers) {
+            if (sampler.name().equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static UniformMember member(List<UniformMember> members, String name) {
+        for (UniformMember member : members) {
+            if (member.name().equals(name)) {
+                return member;
+            }
+        }
+        return null;
     }
 
     private static String insertAfterVersion(String source, String insert) {

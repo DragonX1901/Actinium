@@ -55,7 +55,8 @@ final class DescriptorAllocator {
             long set = pSet.get(0);
 
             int writeCount = 0;
-            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(2, stack);
+            VkWriteDescriptorSet.Buffer writes =
+                    VkWriteDescriptorSet.calloc(1 + program.samplerBindings.size(), stack);
 
             if (program.uniformStaging != null) {
                 int uniformOffset = UniformRing.write(program.uniformStaging);
@@ -70,21 +71,25 @@ final class DescriptorAllocator {
                         .sType$Default()
                         .dstSet(set)
                         .dstBinding(0)
-                        .descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)
+                        .descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
                         .descriptorCount(1)
                         .pBufferInfo(bufferInfo);
             }
 
-            ActiniumGLState.GLTexture unit0 = state.texture(state.boundTexture(0));
-            if (unit0 != null && unit0.vkImageView != VK_NULL_HANDLE) {
+            for (int binding : program.samplerBindings.values()) {
+                int unit = binding < program.samplerUnits.length ? program.samplerUnits[binding] : 0;
+                ActiniumGLState.GLTexture texture = state.texture(state.boundTexture(unit));
+                if (texture == null || texture.vkImageView == VK_NULL_HANDLE) {
+                    continue;
+                }
                 VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack)
                         .imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                        .imageView(unit0.vkImageView)
-                        .sampler(SamplerCache.forTexture(unit0));
+                        .imageView(texture.vkImageView)
+                        .sampler(SamplerCache.forTexture(texture));
                 writes.get(writeCount++)
                         .sType$Default()
                         .dstSet(set)
-                        .dstBinding(0)
+                        .dstBinding(binding)
                         .descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                         .descriptorCount(1)
                         .pImageInfo(imageInfo);
@@ -104,7 +109,7 @@ final class DescriptorAllocator {
         }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorPoolSize.Buffer sizes = VkDescriptorPoolSize.calloc(2, stack);
-            sizes.get(0).type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC).descriptorCount(SETS_PER_POOL);
+            sizes.get(0).type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(SETS_PER_POOL);
             sizes.get(1).type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                     .descriptorCount(SETS_PER_POOL * ActiniumGLState.MAX_TEXTURE_UNITS);
 
