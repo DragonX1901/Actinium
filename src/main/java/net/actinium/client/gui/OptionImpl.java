@@ -9,14 +9,7 @@ import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
-/**
- * Standard {@link Option} implementation: a getter, a setter, and a pending value.
- *
- * @param <S> the storage object the value lives on
- * @param <T> the value type
- */
 public final class OptionImpl<S, T> implements Option<T> {
-
     private final OptionStorage<S> storage;
     private final Component name;
     private final Component tooltip;
@@ -29,10 +22,8 @@ public final class OptionImpl<S, T> implements Option<T> {
 
     private T pending;
 
-    /** Lets an option grey itself out based on runtime state, such as the active interop mode. */
     @FunctionalInterface
     public interface AvailabilityCheck {
-        /** @return null when available, otherwise the reason to show. */
         Component unavailableReason();
     }
 

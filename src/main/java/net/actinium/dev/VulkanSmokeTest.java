@@ -2,6 +2,7 @@ package net.actinium.dev;
 
 import net.actinium.core.FrameRenderer;
 import net.actinium.core.GlslPatcher;
+import net.actinium.interop.GLFormats;
 import net.actinium.core.ShaderCompiler;
 import net.actinium.core.VkContext;
 import net.actinium.interop.GLRedirectTransformer;
@@ -15,18 +16,7 @@ import org.objectweb.asm.Opcodes;
 
 import java.nio.ByteBuffer;
 
-/**
- * Standalone verification of everything in Actinium that does not need Minecraft running.
- *
- * <p>Run it with {@code ./gradlew smokeTest}. It exercises the three subsystems that are easy
- * to get subtly wrong and hard to notice inside a game: Vulkan bootstrap and presentation, GLSL
- * patching plus SPIR-V compilation, and the bytecode transformer.
- *
- * <p>Users can run it too. A crash here identifies a broken driver or a missing Vulkan loader
- * before Minecraft ever starts, which is a far better error message than a black window.
- */
 public final class VulkanSmokeTest {
-
     private static int failures;
 
     public static void main(String[] args) {
@@ -35,9 +25,11 @@ public final class VulkanSmokeTest {
         run("pixel converter", VulkanSmokeTest::testPixelConverter);
         run("bytecode transformer", VulkanSmokeTest::testTransformer);
         run("GLSL patch + SPIR-V compile", VulkanSmokeTest::testShaderPipeline);
+        run("GL format tables", VulkanSmokeTest::testFormatTables);
+        if (!Boolean.getBoolean("actinium.headless")) {
+            run("GL bridge context", VulkanSmokeTest::testBridgeContext);
+        }
 
-        // shaderc is a native library but needs no device, so it stays in the headless set.
-        // Creating a window and a Vulkan device does not survive a hosted CI runner.
         if (Boolean.getBoolean("actinium.headless")) {
             System.out.println("=== Vulkan bootstrap + present ===");
             System.out.println("  SKIPPED (actinium.headless): needs a GPU and a display");
@@ -55,6 +47,87 @@ public final class VulkanSmokeTest {
         }
     }
 
+    private static void testFormatTables() {
+        int[] internalFormats = {
+            0x1907,
+            0x8051,
+            0x8C43,
+            0x8229,
+            0x822B,
+            0x881A,
+            0x8814,
+            0x822D,
+            0x822F,
+            0x8F94,
+            0x8F95,
+            0x8F96,
+            0x8F97,
+            0x822A,
+            0x822C,
+            0x805B,
+            0x822E,
+            0x8230,
+        };
+        for (int internalFormat : internalFormats) {
+            int vk = GLFormats.translate(internalFormat);
+            check(vk != 0, "no VkFormat for internal format 0x"
+                    + Integer.toHexString(internalFormat));
+            check(GLFormats.toGlFormat(vk) != 0,
+                    "VkFormat " + vk + " has no way back to a GL format, so getGlFormat throws "
+                            + "for anything created as 0x" + Integer.toHexString(internalFormat));
+        }
+
+        int[] texelFormats = {0x1903, 0x1907, 0x1908, 0x8058, 0x80E1};
+        for (int format : texelFormats) {
+            check(GLFormats.translateTexelFormat(format) != 0,
+                    "no VkFormat for texel format 0x" + Integer.toHexString(format));
+        }
+
+        check(GLFormats.translateTexelFormat(0x80E1) != GLFormats.translateTexelFormat(0x1908),
+                "GL_BGRA and GL_RGBA map to the same VkFormat, so channel order is lost");
+
+        System.out.println("  " + internalFormats.length + " internal formats round trip, "
+                + texelFormats.length + " texel formats resolve, BGRA stays distinct");
+    }
+
+    private static void testBridgeContext() {
+        org.lwjgl.glfw.GLFW.glfwInit();
+        org.lwjgl.glfw.GLFW.glfwDefaultWindowHints();
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_VISIBLE,
+                org.lwjgl.glfw.GLFW.GLFW_FALSE);
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_CLIENT_API,
+                org.lwjgl.glfw.GLFW.GLFW_OPENGL_API);
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_OPENGL_PROFILE,
+                org.lwjgl.glfw.GLFW.GLFW_OPENGL_CORE_PROFILE);
+        org.lwjgl.glfw.GLFW.glfwWindowHint(org.lwjgl.glfw.GLFW.GLFW_OPENGL_FORWARD_COMPAT,
+                org.lwjgl.glfw.GLFW.GLFW_TRUE);
+
+        long window = org.lwjgl.glfw.GLFW.glfwCreateWindow(1, 1, "bridge probe", 0L, 0L);
+        check(window != 0L, "could not create the hidden GL window");
+        org.lwjgl.glfw.GLFW.glfwMakeContextCurrent(window);
+        org.lwjgl.opengl.GL.createCapabilities();
+
+        String version = org.lwjgl.opengl.GL11.glGetString(org.lwjgl.opengl.GL11.GL_VERSION);
+        int attribs = org.lwjgl.opengl.GL11.glGetInteger(0x8869);
+        int texSize = org.lwjgl.opengl.GL11.glGetInteger(0x0D33);
+        System.out.println("  version=" + version + " MAX_VERTEX_ATTRIBS=" + attribs
+                + " MAX_TEXTURE_SIZE=" + texSize);
+
+        org.lwjgl.glfw.GLFW.glfwDestroyWindow(window);
+
+        check(attribs >= 16, "GL_MAX_VERTEX_ATTRIBS is " + attribs
+                + "; a context reporting a version must report its limits too");
+        check(texSize >= 1024, "GL_MAX_TEXTURE_SIZE is " + texSize);
+    }
+
+    private static void check(boolean condition, String failure) {
+        if (!condition) {
+            throw new AssertionError(failure);
+        }
+    }
+
     private static void run(String name, Runnable check) {
         System.out.println("=== " + name + " ===");
         try {
@@ -68,17 +141,6 @@ public final class VulkanSmokeTest {
         System.out.println();
     }
 
-    // ------------------------------------------------------------------
-    // 0. Pixel converter
-    // ------------------------------------------------------------------
-
-    /**
-     * The stride maths, checked without a GPU.
-     *
-     * <p>The interesting case is a 3-byte-per-pixel image whose row length is not a multiple of
-     * the unpack alignment. That is where a hardcoded 4 bytes per pixel shifts every row and
-     * produces the diagonal skew this converter exists to fix.
-     */
     private static void testPixelConverter() {
         net.actinium.interop.GLPixelConverter.reset();
 
@@ -91,9 +153,6 @@ public final class VulkanSmokeTest {
         assertTrue(net.actinium.interop.GLPixelConverter.bytesPerPixel(0x1908, 0x1406) == 16,
                 "GL_RGBA/GL_FLOAT must be 16 bytes per pixel");
 
-        // 3 pixels wide, RGB, 1 byte per component = 9 bytes, rounded to 12 by the default
-        // GL_UNPACK_ALIGNMENT of 4. VulkanMod would have used 3 * 4 = 12 by luck here, so use
-        // a width where the two disagree: 2 pixels = 6 bytes, aligned to 8, not 8 by accident.
         int stride = net.actinium.interop.GLPixelConverter.rowStride(3, 0x1907, 0x1401);
         System.out.println("  RGB8 width 3: stride=" + stride + " (9 bytes padded to 12)");
         assertTrue(stride == 12, "expected 12, got " + stride);
@@ -102,12 +161,11 @@ public final class VulkanSmokeTest {
         System.out.println("  RGB8 width 2: stride=" + stride2 + " (6 bytes padded to 8)");
         assertTrue(stride2 == 8, "expected 8, got " + stride2);
 
-        // Two rows of two RGB pixels, with the alignment padding actually present.
         java.nio.ByteBuffer src = org.lwjgl.system.MemoryUtil.memAlloc(16);
         try {
             byte[] data = {
-                    (byte) 0xFF, 0, 0, 0, (byte) 0xFF, 0, 0, 0,          // red, green, 2 pad
-                    0, 0, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0, 0 // blue, white, 2 pad
+                    (byte) 0xFF, 0, 0, 0, (byte) 0xFF, 0, 0, 0,
+                    0, 0, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0, 0
             };
             src.put(data).flip();
 
@@ -133,7 +191,6 @@ public final class VulkanSmokeTest {
             org.lwjgl.system.MemoryUtil.memFree(src);
         }
 
-        // BGRA must come out swizzled, not passed through.
         java.nio.ByteBuffer bgra = org.lwjgl.system.MemoryUtil.memAlloc(4);
         try {
             bgra.put((byte) 0x10).put((byte) 0x20).put((byte) 0x30).put((byte) 0x40).flip();
@@ -146,10 +203,6 @@ public final class VulkanSmokeTest {
             org.lwjgl.system.MemoryUtil.memFree(bgra);
         }
     }
-
-    // ------------------------------------------------------------------
-    // 1. Bytecode transformer
-    // ------------------------------------------------------------------
 
     private static void testTransformer() {
         byte[] original = synthesiseGlCaller();
@@ -175,8 +228,6 @@ public final class VulkanSmokeTest {
         System.out.println("  rewrote " + GLRedirectTransformer.rewrittenCallCount()
                 + " call site(s) across " + GLRedirectTransformer.rewrittenClassCount() + " class(es)");
 
-        // A class with no GL references must come back byte-identical, or the constant-pool
-        // prefilter is doing pointless work on every class the game loads.
         byte[] unrelated = synthesiseUnrelated();
         if (GLRedirectTransformer.transform(unrelated) != unrelated) {
             throw new AssertionError("prefilter rewrote a class containing no GL references");
@@ -184,7 +235,6 @@ public final class VulkanSmokeTest {
         System.out.println("  prefilter skipped a GL-free class without rewriting");
     }
 
-    /** Builds {@code com/example/coolmod/Renderer#draw()} calling GL11.glDrawArrays + glBindTexture. */
     private static byte[] synthesiseGlCaller() {
         ClassWriter cw = new ClassWriter(0);
         cw.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "com/example/coolmod/Renderer",
@@ -223,10 +273,6 @@ public final class VulkanSmokeTest {
         cw.visitEnd();
         return cw.toByteArray();
     }
-
-    // ------------------------------------------------------------------
-    // 2. GLSL patching and SPIR-V compilation
-    // ------------------------------------------------------------------
 
     private static final String VANILLA_STYLE_VERTEX = """
             #version 150
@@ -300,12 +346,10 @@ public final class VulkanSmokeTest {
                     ShaderCompiler.Stage.FRAGMENT);
             System.out.println("  fragment SPIR-V: " + fragmentSpirv.remaining() + " bytes");
 
-            // SPIR-V magic number, little endian.
             int magic = vertexSpirv.getInt(0);
             assertTrue(magic == 0x07230203, "SPIR-V magic number mismatch: 0x" + Integer.toHexString(magic));
             System.out.println("  SPIR-V magic verified on both stages");
 
-            // A shader using a fixed-function built-in must be rejected, not silently compiled.
             try {
                 GlslPatcher.patch("legacy.vsh",
                         "#version 120\nvoid main() { gl_Position = gl_ModelViewMatrix * gl_Vertex; }",
@@ -319,10 +363,6 @@ public final class VulkanSmokeTest {
         }
     }
 
-    // ------------------------------------------------------------------
-    // 3. Vulkan bootstrap and presentation
-    // ------------------------------------------------------------------
-
     private static void testVulkan() {
         GLFWErrorCallback.createPrint(System.err).set();
         if (!GLFW.glfwInit()) {
@@ -332,7 +372,6 @@ public final class VulkanSmokeTest {
             throw new IllegalStateException("GLFW reports no Vulkan support");
         }
 
-        // The same hints WindowMixin forces onto Minecraft's window.
         GLFW.glfwDefaultWindowHints();
         GLFW.glfwWindowHint(GLFW.GLFW_CLIENT_API, GLFW.GLFW_NO_API);
         GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
@@ -371,7 +410,6 @@ public final class VulkanSmokeTest {
             System.out.println("  presented " + presented + " / 120 frames");
             assertTrue(presented >= 100, "too many frames were skipped: " + presented);
 
-            // Resize must not leak or crash: this is where swapchain lifetimes usually break.
             renderer.resize(640, 360, true);
             System.out.println("  resized to " + renderer.swapchain().width() + "x"
                     + renderer.swapchain().height());

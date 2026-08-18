@@ -8,15 +8,7 @@ import net.minecraft.network.chat.Component;
 
 import java.util.function.IntFunction;
 
-/**
- * A drag slider over an integer range.
- *
- * <p>The track sits on the right of the row with the formatted value under the cursor's reach
- * rather than inside the track, so a two-character value and a five-character value do not
- * shift the track width between frames.
- */
 public final class SliderControl implements Control<Integer> {
-
     private final int min;
     private final int max;
     private final int step;
@@ -50,7 +42,6 @@ public final class SliderControl implements Control<Integer> {
     }
 
     private final class Element extends ControlElement<Integer> {
-
         private boolean dragging;
 
         Element(Option<Integer> option, int x, int y, int width, int height) {

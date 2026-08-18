@@ -15,24 +15,7 @@ import java.nio.LongBuffer;
 import static org.lwjgl.system.MemoryUtil.memCopy;
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * Buffer allocation and upload through VMA.
- *
- * <p>Two paths, chosen by GL usage hint:
- * <ul>
- *   <li><b>Streaming</b> ({@code GL_STREAM_DRAW}/{@code GL_DYNAMIC_DRAW}) — host-visible,
- *       host-coherent, mapped once and never unmapped. The CPU writes straight into memory
- *       the GPU reads. Zero copies, no barrier, and it is what makes GUI and particle
- *       rewrites cheap.</li>
- *   <li><b>Static</b> ({@code GL_STATIC_DRAW}) — device-local, filled through a temporary
- *       staging buffer. Costs one copy up front, then every read is at full VRAM bandwidth.</li>
- * </ul>
- * Getting this backwards is the single most common cause of a Vulkan port being
- * <em>slower</em> than the GL original: device-local memory written per-frame over PCIe
- * is far worse than the driver's own GL buffer orphaning.
- */
 final class BufferUploader {
-
     private BufferUploader() {
     }
 
@@ -102,8 +85,7 @@ final class BufferUploader {
             Vma.vmaMapMemory(ctx.allocator(), buffer.allocation, pData);
             memCopy(org.lwjgl.system.MemoryUtil.memAddress(data), pData.get(0) + offset, data.remaining());
             Vma.vmaUnmapMemory(ctx.allocator(), buffer.allocation);
-            // AUTO_PREFER_HOST gives coherent memory on every desktop driver we target,
-            // but flush anyway: it is a no-op on coherent memory and correct on the rest.
+
             Vma.vmaFlushAllocation(ctx.allocator(), buffer.allocation, offset, data.remaining());
         }
     }
@@ -135,8 +117,7 @@ final class BufferUploader {
                     .dstOffset(offset)
                     .size(data.remaining());
             vkCmdCopyBuffer(cmd, pStaging.get(0), buffer.vkBuffer, region);
-            // Deferred destroy: the staging buffer must outlive the submit, so it is
-            // retired on the frame fence rather than here.
+
             TransferQueue.submitAndRetire(ctx, cmd, pStaging.get(0), pStagingAlloc.get(0));
         }
     }

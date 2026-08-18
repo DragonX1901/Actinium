@@ -1,0 +1,29 @@
+# Third-party software shipped with Actinium
+
+Actinium is MIT licensed. It embeds one component that is not, unmodified and in its own jar.
+
+## NeoVulkanMod (VulkanModNeoForge)
+
+- **Version shipped:** 1.0.0, embedded at `META-INF/jarjar/vulkanmod-1.0.0.jar`
+- **Licence:** LGPL-3.0, full text in [`LICENSE-VulkanMod-LGPL-3.0.txt`](LICENSE-VulkanMod-LGPL-3.0.txt)
+- **Maintainer:** yiyuyan, https://github.com/yiyuyan/VulkanModNeoForge
+- **Authors:** Collateral, commonplace (KSmc_brigade)
+- **Upstream project:** https://github.com/xCollateral/VulkanMod
+
+This is the Vulkan renderer. Actinium configures it, patches the gaps in its OpenGL emulation,
+and gives it a settings screen. It does not render by itself.
+
+The jar is shipped byte for byte as its authors released it, nothing in it is modified, and its
+SHA-256 is pinned in `build.gradle.kts` so a mirror or a re-tagged release cannot change what
+ships under Actinium's name:
+
+```
+e5efe9dd281415e3e6794ac366302fa5209b2384438730c735b3719d3f43f1ff
+```
+
+### Replacing it
+
+LGPL-3.0 requires that you can run Actinium against your own build of the renderer. Put a
+`vulkanmod` jar with a version of 1.0.0 or higher in your `mods` folder: FML loads the highest
+version it finds for a mod id, so an installed copy takes precedence over the embedded one and
+nothing here has to be rebuilt.

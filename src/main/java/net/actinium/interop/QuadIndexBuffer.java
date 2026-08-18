@@ -13,17 +13,7 @@ import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * A single growable index buffer holding {@code 0,1,2, 2,3,0} per quad.
- *
- * <p>{@code GL_QUADS} was removed in the GL core profile and never existed in Vulkan, yet
- * Minecraft's entire GUI, particle and block-entity geometry is quads. Vanilla solves this
- * with {@code RenderSystem.getSequentialBuffer}; the interop layer needs the same thing for
- * mod draws. One shared, monotonically-growing buffer costs a few hundred KB at the largest
- * batch sizes and removes per-draw index generation entirely.
- */
 final class QuadIndexBuffer {
-
     private static long buffer = VK_NULL_HANDLE;
     private static long allocation = VK_NULL_HANDLE;
     private static int capacityQuads = 0;

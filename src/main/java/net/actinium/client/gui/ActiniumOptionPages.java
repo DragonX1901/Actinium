@@ -14,24 +14,10 @@ import net.minecraft.network.chat.Component;
 
 import java.util.List;
 
-/**
- * Builds the tabs.
- *
- * <p>Three storages feed this screen. Vanilla {@code Options} owns render distance and the
- * rest of the settings Minecraft has always had. VulkanMod's config owns everything about the
- * renderer, reached reflectively through {@link VulkanModConfig}. Actinium's own options cover
- * the interop layer.
- *
- * <p>Rows whose backing setting is missing grey out and explain themselves in the description
- * panel. That happens when VulkanMod is not installed, or when a VulkanMod build renames a
- * field. Neither case crashes and neither shows a control that silently does nothing.
- */
 public final class ActiniumOptionPages {
-
     private ActiniumOptionPages() {
     }
 
-    /** For options that need Actinium itself to be driving the renderer, which it currently is not. */
     private static OptionImpl.AvailabilityCheck requiresActiniumBackend() {
         return () -> VkContext.isInitialised()
                 ? null
@@ -41,10 +27,6 @@ public final class ActiniumOptionPages {
     public static List<OptionPage> build() {
         return List.of(general(), quality(), performance(), advanced());
     }
-
-    // ------------------------------------------------------------------
-    // General
-    // ------------------------------------------------------------------
 
     private static OptionPage general() {
         OptionStorage<Options> vanilla = VanillaOptionsStorage.INSTANCE;
@@ -100,10 +82,6 @@ public final class ActiniumOptionPages {
                         vsync, viewBobbing));
     }
 
-    // ------------------------------------------------------------------
-    // Quality
-    // ------------------------------------------------------------------
-
     private static OptionPage quality() {
         OptionStorage<Options> vanilla = VanillaOptionsStorage.INSTANCE;
         OptionStorage<VulkanModConfig> vk = VulkanModOptionsStorage.INSTANCE;
@@ -131,8 +109,6 @@ public final class ActiniumOptionPages {
                 .flags(OptionFlag.REQUIRES_ASSET_RELOAD, OptionFlag.REQUIRES_RENDERER_RELOAD)
                 .build();
 
-        // VulkanMod keeps its own AO mode and mirrors the on/off part into vanilla's setting,
-        // because vanilla code still reads that flag. Writing only one of the two desyncs them.
         Option<Integer> ambientOcclusion = OptionImpl.<VulkanModConfig, Integer>of(vk)
                 .name(Component.translatable("options.ao"))
                 .tooltip(Component.translatable("actinium.options.ao.tooltip"))
@@ -162,10 +138,6 @@ public final class ActiniumOptionPages {
                 OptionGroup.of("actinium.options.group.world", clouds, mipmapLevels, ambientOcclusion),
                 OptionGroup.of("actinium.options.group.entities", entityShadows));
     }
-
-    // ------------------------------------------------------------------
-    // Performance — entirely VulkanMod's renderer
-    // ------------------------------------------------------------------
 
     private static OptionPage performance() {
         OptionStorage<VulkanModConfig> vk = VulkanModOptionsStorage.INSTANCE;
@@ -229,10 +201,6 @@ public final class ActiniumOptionPages {
                 OptionGroup.of("actinium.options.group.cpu", builderThreads, frameQueue));
     }
 
-    // ------------------------------------------------------------------
-    // Advanced
-    // ------------------------------------------------------------------
-
     private static OptionPage advanced() {
         OptionStorage<VulkanModConfig> vk = VulkanModOptionsStorage.INSTANCE;
         OptionStorage<ActiniumOptions> actinium = ActiniumOptionsStorage.INSTANCE;
@@ -240,10 +208,6 @@ public final class ActiniumOptionPages {
         Option<Boolean> uniqueOpaqueLayer = vkSwitch(vk, "uniqueOpaqueLayer", true,
                 "actinium.options.uniqueOpaqueLayer", OptionImpact.MEDIUM, true);
 
-        // One real switch instead of three rows that could never take effect. The old page
-        // offered an interop mode, validation layers and shader debug info, all of which
-        // needed Actinium's own backend, which does not run. Greying them out with an
-        // explanation is better than lying, but not offering them at all is better still.
         Option<Boolean> interopEnabled = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
                 .name(Component.translatable("actinium.options.interopEnabled"))
                 .tooltip(Component.translatable("actinium.options.interopEnabled.tooltip"))
@@ -258,7 +222,6 @@ public final class ActiniumOptionPages {
                 OptionGroup.of("actinium.options.group.interop", interopEnabled));
     }
 
-    /** Shorthand for the many VulkanMod booleans that differ only in name and reload behaviour. */
     private static Option<Boolean> vkSwitch(OptionStorage<VulkanModConfig> storage, String field,
                                             boolean fallback, String translationKey,
                                             OptionImpact impact, boolean rebuildsChunks) {

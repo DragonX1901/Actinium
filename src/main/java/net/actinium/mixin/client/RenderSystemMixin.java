@@ -14,25 +14,10 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/**
- * Replaces the vanilla GL entry points that run before any render path exists.
- *
- * <h2>Presentation</h2>
- * {@code glfwSwapBuffers} lives in {@code RenderSystem.flipFrame}, not in {@code Window}.
- * {@code Window.updateDisplay()} only forwards to it. Targeting {@code Window} fails the
- * injection check with "Scanned 0 target(s)", which is how this was found.
- *
- * <h2>Renderer probing</h2>
- * {@code Window}'s constructor calls {@code RenderSystem.maxSupportedTextureSize()} on the line
- * directly after {@code GL.createCapabilities()}. That queries {@code GL_MAX_TEXTURE_SIZE} from
- * a context Actinium just refused to create, so it has to answer from Vulkan instead.
- */
 @Mixin(RenderSystem.class)
 public abstract class RenderSystemMixin {
-
     private static final Logger ACTINIUM$LOGGER = LoggerFactory.getLogger("Actinium/RenderSystem");
 
-    /** Cached because vanilla calls this on resize and on every atlas stitch. */
     private static int actinium$maxTextureSize = -1;
 
     @Redirect(
@@ -64,10 +49,6 @@ public abstract class RenderSystemMixin {
         cir.setReturnValue(actinium$maxTextureSize);
     }
 
-    /**
-     * {@code initRenderer} reads the driver strings, installs the GL debug callback and asserts
-     * a context is current. All three fail on a {@code GLFW_NO_API} window.
-     */
     @Inject(method = "initRenderer", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$skipGlRendererInit(int debugVerbosity, boolean synchronous, CallbackInfo ci) {
         if (!ActiniumClient.isActive()) {

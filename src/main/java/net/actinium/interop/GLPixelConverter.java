@@ -7,45 +7,9 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-/**
- * Converts OpenGL pixel data into the tightly packed RGBA the Vulkan upload path expects.
- *
- * <h2>Why</h2>
- * VulkanMod reads a client-memory upload like this:
- *
- * <pre>
- * private static ByteBuffer getByteBuffer(int width, int height, long pixels) {
- *     // TODO: hardcoded format size
- *     int formatSize = 4;
- *     int rowLength = unpackRowLength != 0 ? unpackRowLength : width;
- *     int offset = (unpackSkipRows * rowLength + unpackSkipPixels) * formatSize;
- *     ...
- * </pre>
- *
- * <p>Four bytes per pixel, always. A {@code GL_RGB} upload is three, {@code GL_RED} is one,
- * {@code GL_RG} is two, {@code GL_RGBA16F} is eight, and the packed short types are two. When
- * the stride is wrong every row starts at the wrong offset and the error accumulates down the
- * image, which is exactly the diagonal skew Xaero's minimap renders.
- *
- * <p>{@code GL_UNPACK_ALIGNMENT} is not tracked at all. It defaults to 4, so any format whose
- * row length is not a multiple of four has padding at the end of every row that the reader has
- * to skip. A 3-byte-per-pixel image of odd width hits this immediately.
- *
- * <p>Neither problem belongs to any particular mod. Vanilla happens to upload RGBA8 almost
- * everywhere, so the shortcut holds until a mod uploads anything else.
- *
- * <h2>What this produces</h2>
- * Tightly packed {@code R8G8B8A8_UNORM}, the format the backend creates its images with. That
- * costs one pass over the pixels and removes every stride and swizzle question from the layers
- * above.
- *
- * <p>The returned buffer is allocated off-heap and owned by the caller.
- */
 public final class GLPixelConverter {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Pixels");
 
-    // ---- formats ----------------------------------------------------------
     public static final int GL_RED = 0x1903;
     public static final int GL_GREEN = 0x1904;
     public static final int GL_BLUE = 0x1905;
@@ -62,7 +26,6 @@ public final class GLPixelConverter {
     public static final int GL_RGB_INTEGER = 0x8D98;
     public static final int GL_RGBA_INTEGER = 0x8D99;
 
-    // ---- types ------------------------------------------------------------
     public static final int GL_BYTE = 0x1400;
     public static final int GL_UNSIGNED_BYTE = 0x1401;
     public static final int GL_SHORT = 0x1402;
@@ -77,7 +40,6 @@ public final class GLPixelConverter {
     public static final int GL_UNSIGNED_INT_8_8_8_8 = 0x8035;
     public static final int GL_UNSIGNED_INT_8_8_8_8_REV = 0x8367;
 
-    // ---- GL_UNPACK_* state, tracked here because the backend ignores alignment
     private static int unpackRowLength;
     private static int unpackSkipRows;
     private static int unpackSkipPixels;
@@ -103,7 +65,6 @@ public final class GLPixelConverter {
         }
     }
 
-    /** Components per pixel for a GL format. */
     public static int components(int format) {
         return switch (format) {
             case GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA, GL_LUMINANCE,
@@ -114,7 +75,6 @@ public final class GLPixelConverter {
         };
     }
 
-    /** Bytes per component, or 0 when the type is packed and describes a whole pixel. */
     private static int componentBytes(int type) {
         return switch (type) {
             case GL_BYTE, GL_UNSIGNED_BYTE -> 1;
@@ -124,11 +84,6 @@ public final class GLPixelConverter {
         };
     }
 
-    /**
-     * Bytes one pixel occupies in the source data.
-     *
-     * <p>This is the number VulkanMod hardcodes to 4.
-     */
     public static int bytesPerPixel(int format, int type) {
         return switch (type) {
             case GL_UNSIGNED_SHORT_5_6_5, GL_UNSIGNED_SHORT_4_4_4_4, GL_UNSIGNED_SHORT_5_5_5_1 -> 2;
@@ -140,12 +95,6 @@ public final class GLPixelConverter {
         };
     }
 
-    /**
-     * Distance in bytes between the start of one row and the next.
-     *
-     * <p>{@code GL_UNPACK_ROW_LENGTH} overrides the width, and the result is rounded up to
-     * {@code GL_UNPACK_ALIGNMENT}. Ignoring the rounding shifts every row after the first.
-     */
     public static int rowStride(int width, int format, int type) {
         int pixelsPerRow = unpackRowLength != 0 ? unpackRowLength : width;
         int bytes = pixelsPerRow * bytesPerPixel(format, type);
@@ -153,18 +102,11 @@ public final class GLPixelConverter {
         return (bytes + alignment - 1) / alignment * alignment;
     }
 
-    /** Byte offset of the first pixel, from {@code GL_UNPACK_SKIP_*}. */
     public static int startOffset(int width, int format, int type) {
         return unpackSkipRows * rowStride(width, format, type)
                 + unpackSkipPixels * bytesPerPixel(format, type);
     }
 
-    /**
-     * Reads a client-memory upload into tightly packed RGBA8.
-     *
-     * @param pixels address of the first byte of client data
-     * @return a newly allocated buffer the caller owns, or null when the address is 0
-     */
     public static ByteBuffer toRGBA8(long pixels, int width, int height, int format, int type) {
         if (pixels == 0L || width <= 0 || height <= 0) {
             return null;
@@ -177,7 +119,6 @@ public final class GLPixelConverter {
         return convert(source, start, stride, width, height, format, type);
     }
 
-    /** Same conversion for data already in a {@link ByteBuffer}. */
     public static ByteBuffer toRGBA8(ByteBuffer pixels, int width, int height, int format, int type) {
         if (pixels == null || width <= 0 || height <= 0) {
             return null;
@@ -198,8 +139,6 @@ public final class GLPixelConverter {
             for (int x = 0; x < width; x++) {
                 int at = rowStart + x * pixelBytes;
                 if (at + pixelBytes > source.limit()) {
-                    // Truncated source. Better to emit opaque black for the remainder than to
-                    // read past the buffer and hand the GPU whatever happened to be there.
                     out.put((byte) 0).put((byte) 0).put((byte) 0).put((byte) 0xFF);
                     continue;
                 }
@@ -279,8 +218,7 @@ public final class GLPixelConverter {
             case GL_GREEN -> out.put((byte) 0).put(c0).put((byte) 0).put((byte) 0xFF);
             case GL_BLUE -> out.put((byte) 0).put((byte) 0).put(c0).put((byte) 0xFF);
             case GL_ALPHA -> out.put((byte) 0).put((byte) 0).put((byte) 0).put(c0);
-            // Legacy luminance replicates across RGB; that is what the fixed-function
-            // pipeline did and what mods still shipping these formats expect to see.
+
             case GL_LUMINANCE -> out.put(c0).put(c0).put(c0).put((byte) 0xFF);
             case GL_LUMINANCE_ALPHA -> out.put(c0).put(c0).put(c0).put(c1);
             case GL_RG -> out.put(c0).put(c1).put((byte) 0).put((byte) 0xFF);
@@ -292,7 +230,6 @@ public final class GLPixelConverter {
         return true;
     }
 
-    /** Narrows one component to 8 bits, normalising floats and wider integers. */
     private static byte component(ByteBuffer src, int at, int size, int type) {
         return switch (type) {
             case GL_FLOAT -> {
@@ -305,18 +242,11 @@ public final class GLPixelConverter {
         };
     }
 
-    /** Scales an n-bit value to 8 bits so 0 maps to 0 and the maximum maps to 255. */
     private static byte expand(int value, int bits) {
         int max = (1 << bits) - 1;
         return (byte) ((value * 255 + max / 2) / max);
     }
 
-    /**
-     * One reusable destination buffer.
-     *
-     * <p>Valid only until the next conversion. Callers copy out of it immediately; nothing
-     * holds onto it across frames.
-     */
     private static ByteBuffer scratch(int bytes) {
         if (scratch == null || scratch.capacity() < bytes) {
             if (scratch != null) {
@@ -330,7 +260,6 @@ public final class GLPixelConverter {
         return scratch;
     }
 
-    /** Resets unpack state. Mirrors what a fresh GL context would have. */
     public static void reset() {
         unpackRowLength = 0;
         unpackSkipRows = 0;

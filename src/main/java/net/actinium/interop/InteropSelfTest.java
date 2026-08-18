@@ -7,24 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 
-/**
- * Proves, once, that the GL interop layer really is wired to a live Vulkan device.
- *
- * <p>Everything below runs through the public {@link ActiniumGL} entry points, exactly as a
- * third-party mod's redirected bytecode would. It exercises the whole chain that matters for
- * resources: the emulated state machine records the binding, the uploader allocates through
- * VMA on the backend's allocator, and the staging copy is submitted on the backend's graphics
- * queue.
- *
- * <p>It deliberately does not draw. A draw needs a bound render pass, a compiled program and a
- * pipeline layout, none of which exist until a mod supplies GLSL. Claiming a passing draw test
- * without those would be a lie; this checks the half that can be checked.
- *
- * <p>Runs on the render thread, on the same thread VulkanMod submits from, so the queue
- * submission inside the texture upload cannot race VulkanMod's own.
- */
 public final class InteropSelfTest {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/SelfTest");
 
     private static boolean done;
@@ -36,19 +19,17 @@ public final class InteropSelfTest {
         return done;
     }
 
-    /** Marks the test as handled without running it, when the interop layer is disabled. */
     public static void skip() {
         done = true;
     }
 
-    /** Safe to call every tick; does its work once. */
     public static void runOnce() {
         if (done) {
             return;
         }
         VulkanBackend backend = VulkanBackend.get();
         if (backend == null) {
-            return; // device not up yet; try again next tick
+            return;
         }
         done = true;
 
@@ -62,7 +43,6 @@ public final class InteropSelfTest {
         LOGGER.info("Interop self-test {}", ok ? "PASSED" : "FAILED");
     }
 
-    /** {@code glGenBuffers} + {@code glBindBuffer} + {@code glBufferData} onto real device memory. */
     private static boolean testBuffer() {
         ByteBuffer data = MemoryUtil.memAlloc(256);
         try {
@@ -93,12 +73,6 @@ public final class InteropSelfTest {
         }
     }
 
-    /**
-     * {@code glGenTextures} + {@code glTexImage2D} on a 4x4 RGBA image.
-     *
-     * <p>This is the stronger half of the test: it allocates a {@code VkImage}, fills it through
-     * a staging buffer, performs two layout transitions, and submits on the backend's queue.
-     */
     private static boolean testTexture() {
         int pixels = 4 * 4 * 4;
         ByteBuffer data = MemoryUtil.memAlloc(pixels);

@@ -3,12 +3,6 @@ package net.actinium.client.gui;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 
-/**
- * How much a setting costs you in frame time.
- *
- * <p>Shown in the description panel so you can tell at a glance which knob to turn when the
- * frame rate drops. The colours match the severity scale players already read in Sodium.
- */
 public enum OptionImpact {
     LOW("actinium.options.impact.low", ChatFormatting.GREEN),
     MEDIUM("actinium.options.impact.medium", ChatFormatting.YELLOW),

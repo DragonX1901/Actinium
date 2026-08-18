@@ -8,6 +8,8 @@ version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
+logoFile = "logo.png"
+credits = "Vulkan rendering by VulkanModNeoForge (yiyuyan), ported from VulkanMod by xCollateral"
 
 # The Window mixin has to apply before Minecraft creates its OpenGL context, so this config
 # must be declared here rather than discovered later.
@@ -31,14 +33,15 @@ versionRange = "${minecraft_version_range}"
 ordering = "NONE"
 side = "CLIENT"
 
-# Required in fact, not just in spirit. Actinium configures and patches a Vulkan backend; it
-# does not provide one. Without VulkanMod the settings screen has nothing to bind to and every
-# compatibility mixin is skipped, so declaring this optional would ship a mod that silently
-# does nothing.
+# Optional, because Actinium runs two ways. In compatibility mode it configures and patches
+# VulkanMod's renderer, and without VulkanMod present every compatibility mixin is skipped and
+# the settings screen has nothing to bind to. In renderer mode (-Dactinium.renderer=true) it
+# creates the Vulkan device itself and VulkanMod must not be installed at all: two mods cannot
+# both own the window surface.
 [[dependencies."${mod_id}"]]
 modId = "vulkanmod"
-type = "required"
-reason = "Actinium configures and patches VulkanMod's renderer; it does not replace it."
+type = "optional"
+reason = "Compatibility mode patches VulkanMod's renderer. Renderer mode replaces it."
 versionRange = "[0.5,)"
 ordering = "AFTER"
 side = "CLIENT"

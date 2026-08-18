@@ -16,23 +16,7 @@ import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * A per-frame ring buffer for uniform data.
- *
- * <p>GL's {@code glUniform*} mutates state that a later draw reads. Vulkan has no such
- * channel: each draw needs its own copy of the uniform block, because command buffers are
- * recorded ahead of execution and a mutated buffer would affect every draw already recorded.
- *
- * <p>So every draw suballocates from one large host-visible ring and binds it with a dynamic
- * offset. One buffer, one map, one descriptor — the per-draw cost is a memcpy of ~256 bytes
- * and an offset. This is the standard answer and it is why {@code
- * VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC} exists.
- *
- * <p>The ring is sized per frame-in-flight and reset at frame start. Overflow wraps and logs
- * rather than corrupting: a frame that overflows draws wrong, the next frame grows the ring.
- */
 final class UniformRing {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Uniforms");
 
     private static final int DEFAULT_SIZE = 8 * 1024 * 1024;
@@ -42,7 +26,7 @@ final class UniformRing {
     private static ByteBuffer mapped;
     private static int capacity;
     private static int offset;
-    private static int alignment = 256; // conservative until the device tells us otherwise
+    private static int alignment = 256;
     private static boolean overflowReported;
 
     private UniformRing() {
@@ -57,17 +41,10 @@ final class UniformRing {
         return buffer;
     }
 
-    /**
-     * @return the byte offset written at, for use as a dynamic descriptor offset, or -1 when
-     *         the ring is exhausted and the draw must be skipped
-     */
     static int write(ByteBuffer data) {
         int size = data.remaining();
         int aligned = (offset + alignment - 1) & ~(alignment - 1);
         if (aligned + size > capacity) {
-            // Wrapping mid-frame would overwrite data a recorded draw still points at, so the
-            // write is refused. The caller skips the draw; throwing here would escape through
-            // ActiniumGL into mod code and take the frame with it.
             if (!overflowReported) {
                 overflowReported = true;
                 LOGGER.error("Uniform ring exhausted at {} bytes. Draws are being skipped; "

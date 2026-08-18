@@ -15,20 +15,7 @@ import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * Per-frame descriptor sets for translated GL draws.
- *
- * <p>GL's "bind a texture to unit N, set a uniform, draw" maps onto "write a descriptor set
- * and bind it". Sets are allocated from a pool that is reset in one call at frame start;
- * individual {@code vkFreeDescriptorSets} is a driver slow path on several vendors and is
- * never used here.
- *
- * <p>The pool is sized for the worst realistic frame (a mod-heavy GUI, thousands of small
- * draws) and grows by chaining a new pool rather than reallocating, so a bad frame degrades
- * into extra allocations instead of a crash.
- */
 final class DescriptorAllocator {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Descriptors");
 
     private static final int SETS_PER_POOL = 4096;
@@ -38,18 +25,12 @@ final class DescriptorAllocator {
     private DescriptorAllocator() {
     }
 
-    /** Resets every set allocated last frame. Called once per frame, before any mod code. */
     static void beginFrame(VulkanBackend ctx) {
         if (pool != VK_NULL_HANDLE) {
             vkResetDescriptorPool(ctx.device(), pool, 0);
         }
     }
 
-    /**
-     * @return a descriptor set describing the currently bound program's UBO and samplers,
-     *         or {@link org.lwjgl.vulkan.VK10#VK_NULL_HANDLE} when the program has no
-     *         descriptor layout (fixed-function-free shaders with only push constants).
-     */
     static long setFor(ActiniumGLState state) {
         ActiniumGLState.GLProgram program = state.program(state.boundProgram());
         if (program == null || program.descriptorSetLayout == VK_NULL_HANDLE) {
@@ -73,14 +54,13 @@ final class DescriptorAllocator {
             }
             long set = pSet.get(0);
 
-            // Binding 0 of set 0: the packed uniform block GlslPatcher synthesised.
             int writeCount = 0;
             VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(2, stack);
 
             if (program.uniformStaging != null) {
                 int uniformOffset = UniformRing.write(program.uniformStaging);
                 if (uniformOffset < 0) {
-                    return VK_NULL_HANDLE; // ring exhausted; caller skips the draw
+                    return VK_NULL_HANDLE;
                 }
                 VkDescriptorBufferInfo.Buffer bufferInfo = VkDescriptorBufferInfo.calloc(1, stack)
                         .buffer(UniformRing.currentBuffer())
@@ -95,8 +75,6 @@ final class DescriptorAllocator {
                         .pBufferInfo(bufferInfo);
             }
 
-            // Set 1: samplers, in the declaration order GlslPatcher assigned, which matches
-            // GL texture unit order.
             ActiniumGLState.GLTexture unit0 = state.texture(state.boundTexture(0));
             if (unit0 != null && unit0.vkImageView != VK_NULL_HANDLE) {
                 VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack)

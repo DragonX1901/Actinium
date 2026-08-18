@@ -9,15 +9,7 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.network.chat.Component;
 
-/**
- * One settings row: label on the left, value on the right.
- *
- * <p>Subclasses draw the value and handle input. This class owns the shared parts: hover
- * highlight, the accent bar that marks a modified row, and greying out an option that does
- * not apply on the current hardware.
- */
 public abstract class ControlElement<T> extends AbstractWidget {
-
     protected final Option<T> option;
 
     protected ControlElement(Option<T> option, int x, int y, int width, int height) {
@@ -37,8 +29,6 @@ public abstract class ControlElement<T> extends AbstractWidget {
             guiGraphics.fill(getX(), getY(), getX() + width, getY() + height, Theme.ROW_HOVER);
         }
         if (option.isModified()) {
-            // A two-pixel bar rather than recolouring the label: you can see at a glance how
-            // many rows you have touched without reading any of them.
             guiGraphics.fill(getX(), getY(), getX() + 2, getY() + height, Theme.ACCENT);
         }
 
@@ -49,7 +39,6 @@ public abstract class ControlElement<T> extends AbstractWidget {
         renderValue(guiGraphics, mouseX, mouseY, enabled);
     }
 
-    /** Draws the right-hand value area, bounded by {@link #valueX()} and the row's right edge. */
     protected abstract void renderValue(GuiGraphics guiGraphics, int mouseX, int mouseY, boolean enabled);
 
     protected int valueX() {
@@ -65,7 +54,6 @@ public abstract class ControlElement<T> extends AbstractWidget {
         }
     }
 
-    /** Called on a left click inside the row, when the option is available. */
     protected abstract void onActivate(double mouseX);
 
     @Override

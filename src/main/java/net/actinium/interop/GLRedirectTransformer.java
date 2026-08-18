@@ -12,50 +12,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Rewrites third-party mods' static calls into {@code org.lwjgl.opengl.GLxx} so they land in
- * {@link ActiniumGL} instead.
- *
- * <h2>Why bytecode rewriting and not a Mixin</h2>
- * Mixin cannot help here. The GL classes live in LWJGL's module, loaded by the boot layer
- * before any transformer Mixin can reach them, and even a successful injection would only
- * cover calls that actually enter those classes — which is all of them, but with the JNI
- * dispatch already committed. Rewriting the <em>caller</em> is both cheaper and reversible:
- * the mod's own bytecode changes, LWJGL is untouched, and a mod on the exclusion list keeps
- * talking to real GL.
- *
- * <p>The transform is a pure {@code INVOKESTATIC} owner swap with an identical descriptor,
- * so it cannot change stack shape, cannot invalidate stack map frames, and is safe to apply
- * without recomputing frames.
- *
- * <h2>What is deliberately not rewritten</h2>
- * <ul>
- *   <li>Minecraft and NeoForge classes — those go through {@code GlStateManager}, which
- *       Actinium replaces wholesale with mixins. Double-handling them would produce two
- *       state machines disagreeing about the same draw.</li>
- *   <li>Any class in {@code org.lwjgl} — rewriting LWJGL's internals would recurse.</li>
- *   <li>Mods on the opt-out list. Shader-pack style mods that reach for raw GL contexts
- *       (Iris, OptiFine ports) need the real driver and are routed to BRIDGE mode instead.</li>
- * </ul>
- */
 public final class GLRedirectTransformer {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Transformer");
 
     private static final String TARGET_OWNER = "net/actinium/interop/ActiniumGL";
     private static final String GL_PACKAGE = "org/lwjgl/opengl/";
 
-    /**
-     * Signatures {@link ActiniumGL} actually implements, as {@code name+descriptor}.
-     *
-     * <p>Derived from the class rather than hand-listed, and keyed on the descriptor as well as
-     * the name. GL overloads names heavily: {@code glGenTextures()} and
-     * {@code glGenTextures(int[])}, {@code glBufferData(int, ByteBuffer, int)} and
-     * {@code glBufferData(int, long, int)}, {@code glTexImage2D} with a buffer and with an
-     * address. Matching on the name alone rewrites the owner of an overload that has no
-     * counterpart here, and the mod dies with NoSuchMethodError at its first draw. Anything
-     * without an exact match is left pointing at real GL, which is the correct fallback.
-     */
     private static final Set<String> REDIRECTED = implementedSignatures();
 
     private static Set<String> implementedSignatures() {
@@ -79,7 +41,6 @@ public final class GLRedirectTransformer {
     private GLRedirectTransformer() {
     }
 
-    /** Mods listed here keep talking to the real driver; used for shader-pack mods. */
     public static void optOut(String classPrefix) {
         optedOutMods.add(classPrefix.replace('.', '/'));
     }
@@ -98,18 +59,12 @@ public final class GLRedirectTransformer {
         return true;
     }
 
-    /**
-     * @return rewritten bytes, or the original array when nothing matched. Returning the
-     *         same array signals "no change" to ModLauncher and skips a redefinition.
-     */
     public static byte[] transform(byte[] classBytes) {
         ClassReader reader = new ClassReader(classBytes);
         if (!referencesGL(reader)) {
-            return classBytes; // constant-pool scan; ~99% of classes exit here
+            return classBytes;
         }
 
-        // COMPUTE_FRAMES is deliberately not used: the transform preserves stack shape, so
-        // the original frames stay valid and we avoid loading every referenced class.
         ClassWriter writer = new ClassWriter(reader, 0);
         int[] hits = {0};
 
@@ -145,10 +100,6 @@ public final class GLRedirectTransformer {
         return writer.toByteArray();
     }
 
-    /**
-     * Cheap pre-filter: a class that never mentions {@code org/lwjgl/opengl} in its constant
-     * pool cannot contain a call to it. Scanning the pool is far cheaper than a full visit.
-     */
     private static boolean referencesGL(ClassReader reader) {
         char[] buffer = new char[reader.getMaxStringLength()];
         for (int i = 1; i < reader.getItemCount(); i++) {
@@ -157,7 +108,6 @@ public final class GLRedirectTransformer {
                 continue;
             }
             try {
-                // Class entries (tag 7) point at a UTF8 with the internal name.
                 if (reader.readByte(offset - 1) == 7) {
                     String name = reader.readUTF8(offset, buffer);
                     if (name != null && name.startsWith(GL_PACKAGE)) {
@@ -165,7 +115,6 @@ public final class GLRedirectTransformer {
                     }
                 }
             } catch (RuntimeException ignored) {
-                // Malformed or unusual constant-pool layout: fall back to transforming.
                 return true;
             }
         }

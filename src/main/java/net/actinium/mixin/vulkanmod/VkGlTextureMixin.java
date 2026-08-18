@@ -7,58 +7,151 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 
-/**
- * Routes client-memory texture uploads through {@link GLPixelConverter}.
- *
- * <p>VulkanMod reads them with a hardcoded four bytes per pixel and no
- * {@code GL_UNPACK_ALIGNMENT}, which its own source marks {@code // TODO: hardcoded format
- * size}. Any format that is not four bytes per pixel gets every row offset a little further
- * than the last, producing a diagonal skew across the image. Xaero's minimap renders exactly
- * that.
- *
- * <p>The redirect captures the enclosing call's {@code format} and {@code type}, which the
- * helper it replaces never receives, and hands back tightly packed RGBA8.
- */
-@Mixin(targets = "net.vulkanmod.gl.VkGlTexture", remap = false)
+@Mixin(targets = {"net.vulkanmod.gl.VkGlTexture", "net.vulkanmod.gl.GlTexture"}, remap = false)
 public abstract class VkGlTextureMixin {
+    @Inject(method = "bindTexture(I)V", at = @At("HEAD"), remap = false, require = 0)
+    private static void actinium$createOnBind(int id, CallbackInfo ci) {
+        net.actinium.gl.GlObjects.ensure(net.actinium.gl.GlObjects.TEXTURE, id);
+    }
 
-    /**
-     * Keeps an attached texture's image alive, as OpenGL does.
-     *
-     * <p>The backend queues the image for freeing the moment the name is deleted, without
-     * telling any framebuffer that references it. The next render pass then transitions a
-     * released handle and the driver takes the process with it.
-     *
-     * <p>When a framebuffer still holds the image, the name is released and the image is left
-     * allocated. That is the lifetime a real driver gives it: an attachment holds a reference
-     * until it is detached or the framebuffer is destroyed.
-     */
-    @Inject(method = "glDeleteTextures(I)V", at = @At("HEAD"), cancellable = true, remap = false)
+    private static final int ACTINIUM$GL_TEXTURE_2D = 0x0DE1;
+
+    @Inject(method = "texParameteri", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private static void actinium$ignoreForeignTargets(int target, int pName, int param,
+                                                      CallbackInfo ci) {
+        if (target != ACTINIUM$GL_TEXTURE_2D) {
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "getTexParameteri", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private static void actinium$readForeignTargets(int target, int pName,
+                                                    CallbackInfoReturnable<Integer> cir) {
+        if (target != ACTINIUM$GL_TEXTURE_2D) {
+            cir.setReturnValue(0);
+        }
+    }
+
+    @Inject(method = "getTexLevelParameter", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private static void actinium$readForeignLevels(int target, int level, int pName,
+                                                   CallbackInfoReturnable<Integer> cir) {
+        if (target != ACTINIUM$GL_TEXTURE_2D) {
+            cir.setReturnValue(0);
+        }
+    }
+
+    @Inject(method = "bindTexture", at = @At("TAIL"), remap = false, require = 0)
+    private static void actinium$mirrorBindToSampler(int id, CallbackInfo ci) {
+        net.actinium.gl.GlTextures.mirror(id);
+    }
+
+    @Inject(method = "generateMipmap", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private static void actinium$generateMipmap(int target, CallbackInfo ci) {
+        ci.cancel();
+        if (target != ACTINIUM$GL_TEXTURE_2D) {
+            return;
+        }
+        Object texture = VulkanModTextures.boundTexture();
+        if (texture != null) {
+            net.actinium.gl.VkImages.generateMipmaps(VulkanModTextures.imageOf(texture));
+        }
+    }
+
+    @Inject(method = "getTexImage", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private static void actinium$readBackRequestedLevel(int tex, int level, int format, int type,
+                                                        long pixels, CallbackInfo ci) {
+        net.actinium.gl.VkImages.flushUploads();
+        if (level <= 0 || pixels == 0L) {
+            return;
+        }
+        Object texture = VulkanModTextures.boundTexture();
+        if (texture != null
+                && net.actinium.gl.VkImages.downloadLevel(VulkanModTextures.imageOf(texture),
+                        level, pixels)) {
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "setMaxLevel", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private void actinium$ignoreNegativeMaxLevel(int level, CallbackInfo ci) {
+        if (level < 0) {
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "setMaxLod", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private void actinium$ignoreNegativeMaxLod(int level, CallbackInfo ci) {
+        if (level < 0) {
+            ci.cancel();
+        }
+    }
+
+    private static boolean actinium$isMinFilter(int v) {
+        return v == 0x2600 || v == 0x2601
+                || v == 0x2700 || v == 0x2701
+                || v == 0x2702 || v == 0x2703;
+    }
+
+    @Inject(method = "setMinFilter", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private void actinium$ignoreBadMinFilter(int value, CallbackInfo ci) {
+        if (!actinium$isMinFilter(value)) {
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "setMagFilter", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    private void actinium$ignoreBadMagFilter(int value, CallbackInfo ci) {
+        if (value != 0x2600 && value != 0x2601) {
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "texSubImage2D(IIIIIIIILjava/nio/ByteBuffer;)V", at = @At("HEAD"),
+            cancellable = true, remap = false, require = 0)
+    private static void actinium$skipConflictingPixelUpload(
+            int target, int level, int xOffset, int yOffset, int width, int height,
+            int format, int type, ByteBuffer pixels, CallbackInfo ci) {
+        if (pixels == null) {
+            return;
+        }
+        Object bound = net.actinium.gl.VkBuffers.pixelBinding(0x88EC);
+        if (bound == null) {
+            return;
+        }
+        if (!actinium$reportedPixelConflict) {
+            actinium$reportedPixelConflict = true;
+            ACTINIUM$TEXTURE_LOGGER.warn("Skipping a texture upload that passed client memory "
+                    + "while a pixel unpack buffer was bound. OpenGL would read the argument as "
+                    + "an offset into that buffer; the backend throws. Nothing is uploaded.");
+        }
+        ci.cancel();
+    }
+
+    private static boolean actinium$reportedPixelConflict;
+
+    private static final org.slf4j.Logger ACTINIUM$TEXTURE_LOGGER =
+            org.slf4j.LoggerFactory.getLogger("Actinium/GL");
+
+    @Inject(method = "glDeleteTextures(I)V", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private static void actinium$deferAttachedTextureFree(int id, CallbackInfo ci) {
+        VulkanModTextures.noteTextureDelete(id);
         if (VulkanModTextures.isAttachedToFramebuffer(id)) {
             VulkanModTextures.releaseNameOnly(id);
             ci.cancel();
         }
     }
 
-    /**
-     * The same rule for the bulk overload.
-     *
-     * <p>{@code glDeleteTextures} exists twice: one name, and an {@code IntBuffer} of them.
-     * Guarding only the single-name form left the batch form freeing attached images exactly as
-     * before, which is how a framebuffer ended up holding a colour attachment that no GL texture
-     * owned any more. Mods that build a render target per object delete in batches, so the
-     * unguarded overload was the one that mattered.
-     */
     @Inject(method = "glDeleteTextures(Ljava/nio/IntBuffer;)V", at = @At("HEAD"),
-            cancellable = true, remap = false)
+            cancellable = true, remap = false, require = 0)
     private static void actinium$deferAttachedTextureFreeBulk(IntBuffer ids, CallbackInfo ci) {
         for (int i = ids.position(); i < ids.limit(); i++) {
             int id = ids.get(i);
+            VulkanModTextures.noteTextureDelete(id);
             if (VulkanModTextures.isAttachedToFramebuffer(id)) {
                 VulkanModTextures.releaseNameOnly(id);
             } else {
@@ -68,26 +161,19 @@ public abstract class VkGlTextureMixin {
         ci.cancel();
     }
 
-    /**
-     * Keeps framebuffer attachments pointing at a texture's current storage.
-     *
-     * <p>Reallocating frees the old image and installs a new one. Any framebuffer that attached
-     * this texture still references the old, freed image, which no texture owns any more. GL has
-     * no such problem: an attachment names the texture object, so re-specifying it is visible to
-     * the framebuffer straight away.
-     */
-    @Inject(method = "allocateImage(III)V", at = @At("HEAD"), remap = false)
+    @Inject(method = "allocateImage(III)V", at = @At("HEAD"), remap = false, require = 0)
     private void actinium$rememberReplacedImage(int width, int height, int vkFormat, CallbackInfo ci) {
         VulkanModTextures.rememberImage(this);
+        net.actinium.gl.VkImages.remember(VulkanModTextures.imageOf(this));
     }
 
-    @Inject(method = "allocateImage(III)V", at = @At("RETURN"), remap = false)
+    @Inject(method = "allocateImage(III)V", at = @At("RETURN"), remap = false, require = 0)
     private void actinium$repointAttachments(int width, int height, int vkFormat, CallbackInfo ci) {
+        net.actinium.gl.VkImages.preserveLevels(VulkanModTextures.imageOf(this));
         VulkanModTextures.repointAttachments(this);
     }
 
-    /** Alignment is not tracked by the backend at all, so track it here. */
-    @Inject(method = "pixelStoreI(II)V", at = @At("HEAD"), remap = false)
+    @Inject(method = "pixelStoreI(II)V", at = @At("HEAD"), remap = false, require = 0)
     private static void actinium$trackPixelStore(int name, int value, CallbackInfo ci) {
         GLPixelConverter.pixelStore(name, value);
     }
@@ -95,7 +181,7 @@ public abstract class VkGlTextureMixin {
     @Redirect(
             method = "texSubImage2D(IIIIIIIIJ)V",
             at = @At(value = "INVOKE",
-                     target = "Lnet/vulkanmod/gl/VkGlTexture;getByteBuffer(IIJ)Ljava/nio/ByteBuffer;"),
+                     target = "getByteBuffer(IIJ)Ljava/nio/ByteBuffer;"),
             remap = false)
     private static ByteBuffer actinium$convertSubImage(
             int bufWidth, int bufHeight, long bufPixels,
@@ -103,9 +189,4 @@ public abstract class VkGlTextureMixin {
             int width, int height, int format, int type, long pixels) {
         return GLPixelConverter.toRGBA8(bufPixels, bufWidth, bufHeight, format, type);
     }
-
-    // texImage2D does not route through getByteBuffer in this build: it allocates the image
-    // and uploads through a different path. Only texSubImage2D reads client memory with the
-    // hardcoded stride, so that is the only place worth redirecting. A redirect on a call site
-    // that does not exist fails the injection check outright, which is how this was found.
 }

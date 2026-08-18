@@ -10,40 +10,9 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Rewrites desktop-GL GLSL into something shaderc will accept as Vulkan GLSL.
- *
- * <p>This is the single highest-risk component in the whole mod. Vanilla's shaders are a
- * closed set and can be handled exhaustively; third-party shaders are not, so the patcher
- * is written to fail loudly and let {@code ActiniumShaderPolicy} fall back to the interop
- * bridge rather than silently emit a shader that draws garbage.
- *
- * <p>Transforms applied, in order:
- * <ol>
- *   <li>{@code #version} → {@code #version 450 core} (SPIR-V needs 4.5x semantics)</li>
- *   <li>Free-floating (default uniform block) uniforms → one packed {@code std140} UBO at
- *       set 0, binding 0. Vulkan has no default uniform block; this is the transform that
- *       breaks most naively-ported shaders.</li>
- *   <li>{@code sampler2D}/{@code sampler3D}/{@code samplerCube} uniforms → explicit
- *       {@code layout(set = 1, binding = N)} in declaration order, matching the texture
- *       unit order the GL state tracker records.</li>
- *   <li>{@code in}/{@code out} varyings without an explicit location get sequential
- *       locations; vertex inputs are keyed off the vanilla {@code VertexFormatElement}
- *       order so one pipeline layout serves every vanilla format.</li>
- *   <li>{@code gl_FragColor} and {@code gl_FragData[n]} → declared out variables.</li>
- *   <li>{@code texture2D}/{@code texture3D}/{@code textureCube} → {@code texture}.</li>
- * </ol>
- *
- * <p>Anything the patcher cannot prove safe — {@code gl_ModelViewMatrix} and the rest of
- * the fixed-function built-ins, subroutines, {@code #extension} directives requesting GL-only
- * extensions — throws {@link UnsupportedShaderException}.
- */
 public final class GlslPatcher {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/GLSL");
 
-    // Horizontal whitespace only. "\\s+" here would swallow the newline and the first word of
-    // the next line, silently welding the following declaration onto the #version directive.
     private static final Pattern VERSION =
             Pattern.compile("^[ \\t]*#version[ \\t]+\\d+([ \\t]+\\w+)?[ \\t]*$", Pattern.MULTILINE);
     private static final Pattern UNIFORM = Pattern.compile(
@@ -79,7 +48,6 @@ public final class GlslPatcher {
             out = "#version 450 core\n" + out;
         }
 
-        // Collect and strip default-block uniforms.
         Map<String, String[]> scalarUniforms = new LinkedHashMap<>();
         List<String> samplers = new ArrayList<>();
         StringBuilder stripped = new StringBuilder();
@@ -91,7 +59,6 @@ public final class GlslPatcher {
             String array = m.group("array");
             stripped.append(out, last, m.start());
             if (SAMPLER_TYPES.contains(type)) {
-                // Samplers are opaque and must stay standalone; only add a binding.
                 int binding = samplers.size();
                 samplers.add(uniformName);
                 stripped.append("layout(set = 1, binding = ").append(binding).append(") uniform ")
@@ -113,10 +80,7 @@ public final class GlslPatcher {
                 String type = e.getValue()[0];
                 String array = e.getValue()[1];
                 int count = array == null ? 1 : Integer.parseInt(array.replaceAll("\\D+", ""));
-                // std140 rounds every array element's stride up to 16 bytes, so an array of
-                // float occupies 16 bytes per entry rather than 4. Using the packed size puts
-                // every member declared after it at an offset the compiled shader disagrees
-                // with, and those uniforms then read neighbouring data.
+
                 int elementSize = array == null ? std140Size(type)
                         : (std140Size(type) + 15) / 16 * 16;
                 int size = elementSize * count;
@@ -143,21 +107,6 @@ public final class GlslPatcher {
         return new Patched(out, members, samplers);
     }
 
-    /**
-     * Gives every {@code in} and {@code out} declaration an explicit location.
-     *
-     * <p>SPIR-V refuses user inputs and outputs without one, and desktop GLSL never needed them
-     * because the GL linker matched varyings by name. Locations are handed out sequentially in
-     * declaration order, counted separately per direction.
-     *
-     * <p>That ordering is the contract between a vertex and fragment shader pair: shader stages
-     * only link if the fragment stage declares its inputs in the same order the vertex stage
-     * declared its outputs. Vanilla and every mod shader worth supporting already writes them
-     * that way, and a mismatch fails loudly at pipeline creation rather than drawing wrongly.
-     *
-     * <p>A {@code mat4} varying consumes four consecutive locations, one per column. Handing out
-     * a single location for it produces a shader that links and reads garbage from location+1.
-     */
     private static String assignVaryingLocations(String source) {
         String[] lines = source.split("\n", -1);
         int nextIn = 0;
@@ -210,7 +159,6 @@ public final class GlslPatcher {
         return (offset + alignment - 1) & ~(alignment - 1);
     }
 
-    /** std140 base alignment. vec3 aligning to 16 is the classic source of silent corruption. */
     private static int std140Alignment(String type) {
         return switch (type) {
             case "float", "int", "uint", "bool" -> 4;
@@ -224,9 +172,9 @@ public final class GlslPatcher {
         return switch (type) {
             case "float", "int", "uint", "bool" -> 4;
             case "vec2", "ivec2" -> 8;
-            case "vec3", "ivec3" -> 16; // padded
+            case "vec3", "ivec3" -> 16;
             case "vec4", "ivec4" -> 16;
-            case "mat3" -> 48;          // 3 columns, each padded to vec4
+            case "mat3" -> 48;
             case "mat4" -> 64;
             default -> throw new UnsupportedShaderException(type, "unsupported uniform type in default block");
         };

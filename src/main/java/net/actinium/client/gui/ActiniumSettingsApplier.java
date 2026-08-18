@@ -9,15 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 
-/**
- * Carries out whatever the applied settings asked for, once each.
- *
- * <p>Order matters. Reloading assets rebuilds the texture atlas, which invalidates every chunk
- * mesh, so an asset reload has to happen before a renderer reload or the renderer rebuilds
- * against textures that are about to be replaced.
- */
 public final class ActiniumSettingsApplier {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Settings");
 
     private ActiniumSettingsApplier() {
@@ -37,7 +29,6 @@ public final class ActiniumSettingsApplier {
                         minecraft.getWindow().getHeight(),
                         ActiniumOptions.get().vsync);
             } else {
-                // Actinium is not driving the renderer; VulkanMod owns the swapchain.
                 VulkanModConfig.get().scheduleSwapChainUpdate();
             }
         }
@@ -47,9 +38,6 @@ public final class ActiniumSettingsApplier {
         }
 
         if (flags.contains(OptionFlag.REQUIRES_GAME_RESTART)) {
-            // Nothing to do at runtime: you cannot swap validation layers on a live VkInstance
-            // or resize a ring buffer other frames still reference. The screen already warned
-            // about this in the description panel.
             LOGGER.info("Some changed settings take effect on the next launch");
         }
     }

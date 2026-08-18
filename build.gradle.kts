@@ -1,4 +1,10 @@
 import org.gradle.api.tasks.testing.logging.TestLogEvent
+import java.security.MessageDigest
+import java.io.File
+import java.net.URI
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 plugins {
     `java-library`
@@ -90,6 +96,57 @@ neoForge {
             if (quickPlay != null) {
                 programArguments.addAll("--quickPlaySingleplayer", quickPlay)
             }
+
+            // Exercise the OpenGL compatibility layer on the paths the backend refuses:
+            //   ./gradlew runClient -PglSelfTest
+            // Most of those paths are ones no installed mod happens to take, so a run that
+            // reaches a world proves nothing about them. This makes the calls directly.
+            if (project.hasProperty("selfTestGlBind")) {
+                systemProperty("actinium.selfTestGlBind", "true")
+            }
+            if (project.hasProperty("dumpTargets")) {
+                systemProperty("actinium.dumpTargets", "true")
+            }
+            if (project.hasProperty("glSelfTest")) {
+                systemProperty("actinium.glSelfTest", "true")
+            }
+
+            // Run Actinium as the renderer instead of as a layer over VulkanMod:
+            //   ./gradlew runClient -Prenderer
+            // VulkanMod must not be installed when this is on; two backends cannot both own
+            // the window surface.
+            if (project.hasProperty("renderer")) {
+                systemProperty("actinium.renderer", "true")
+            }
+
+            // Name the caller that freed each Vulkan image, for chasing a use-after-free:
+            //   ./gradlew runClient -PtraceFrees
+            if (project.hasProperty("traceFrees")) {
+                systemProperty("actinium.traceFrees", "true")
+            }
+
+            // Turn the mixin preflight off, to test whether a failure downstream is its doing:
+            //   ./gradlew runClient -PnoPreflight
+            if (project.hasProperty("noPreflight")) {
+                systemProperty("actinium.noPreflight", "true")
+            }
+        }
+        // The packaged jar, loaded the way a player loads it: from the mods folder, with
+        // nothing from this source tree on the classpath. It is the only run that exercises
+        // the embedded renderer, because a dev run loads Actinium from classes and never
+        // unpacks a jar-in-jar.
+        //
+        //   ./gradlew build && cp build/libs/actinium-*.jar run-prod/mods/
+        //   ./gradlew prodClient
+        register("prodClient") {
+            client()
+            gameDirectory = file("run-prod")
+            loadedMods.empty()
+            jvmArgument("-Dorg.lwjgl.system.stackSize=1024")
+            val quickPlay = project.findProperty("quickPlay") as String?
+            if (quickPlay != null) {
+                programArguments.addAll("--quickPlaySingleplayer", quickPlay)
+            }
         }
         register("server") {
             server()
@@ -152,11 +209,194 @@ dependencies {
     // bridge context.
     compileOnly("org.lwjgl:lwjgl-opengl:$lwjgl_version")
 
+    // ---- Renderer mode ----------------------------------------------------
+    //
+    // Renderer mode has no VulkanMod to supply the Vulkan modules, so the dev run adds them
+    // itself. Only under -Prenderer: with VulkanMod installed they arrive as mod files, and a
+    // second copy on the classpath is fatal —
+    //
+    //   ResolutionException: Modules vulkan_lwjgl and org.lwjgl.vulkan
+    //                        export package org.lwjgl.vulkan
+    //
+    // The shipped jar carries them as mod files instead; see packVulkanLibs.
+    if (project.hasProperty("renderer")) {
+        "clientAdditionalRuntimeClasspath"("org.lwjgl:lwjgl-vulkan:$lwjgl_version")
+        "clientAdditionalRuntimeClasspath"("org.lwjgl:lwjgl-vma:$lwjgl_version")
+        "clientAdditionalRuntimeClasspath"("org.lwjgl:lwjgl-vma:$lwjgl_version:$hostNatives")
+        "clientAdditionalRuntimeClasspath"("org.lwjgl:lwjgl-shaderc:$lwjgl_version")
+        "clientAdditionalRuntimeClasspath"("org.lwjgl:lwjgl-shaderc:$lwjgl_version:$hostNatives")
+    }
+
     // ---- Bytecode interception --------------------------------------------
     // ASM comes from the NeoForge dev bundle; compileOnly so no second copy is shaded.
     compileOnly("org.ow2.asm:asm:9.7")
     compileOnly("org.ow2.asm:asm-tree:9.7")
     compileOnly("org.ow2.asm:asm-commons:9.7")
+}
+
+// ---------------------------------------------------------------------------
+// The Vulkan renderer, shipped inside the jar
+//
+// Actinium is what a player installs, and installing it has to be enough to run the game on
+// Vulkan. The renderer is VulkanModNeoForge, embedded unmodified through NeoForge's jar-in-jar
+// mechanism rather than copied into this source tree: it is LGPL-3.0, and keeping it a separate
+// jar is what lets a user replace it with their own build, which that licence requires.
+//
+// A newer copy installed in the mods folder wins over the embedded one, because FML picks the
+// highest version among candidates for the same mod id.
+// ---------------------------------------------------------------------------
+val rendererVersion = "1.0.0"
+val rendererSha256 = "e5efe9dd281415e3e6794ac366302fa5209b2384438730c735b3719d3f43f1ff"
+val rendererUrl =
+    "https://github.com/yiyuyan/VulkanModNeoForge/releases/download/1.21neo-1.0/vulkanmod-$rendererVersion.jar"
+val rendererJar = layout.buildDirectory.file("renderer/vulkanmod-$rendererVersion.jar")
+val rendererMetadataFile = layout.buildDirectory.file("renderer/metadata.json")
+
+val downloadRenderer by tasks.registering {
+    description = "Fetches the VulkanModNeoForge release that ships inside the Actinium jar."
+    val target = rendererJar
+    val url = rendererUrl
+    val expected = rendererSha256
+    outputs.file(target)
+    doLast {
+        val file = target.get().asFile
+        file.parentFile.mkdirs()
+        // The hash is pinned, so a mirror, a proxy or a re-tagged release cannot quietly change
+        // what ships under Actinium's name.
+        fun hash(): String {
+            if (!file.exists()) {
+                return ""
+            }
+            val bytes = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+            val text = StringBuilder()
+            for (byte in bytes) {
+                text.append(String.format("%02x", byte))
+            }
+            return text.toString()
+        }
+        if (hash() != expected) {
+            URI.create(url).toURL().openStream().use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        val actual = hash()
+        check(actual == expected) {
+            "Renderer jar does not match its pinned hash.\n  expected $expected\n  actual   $actual"
+        }
+    }
+}
+
+// LWJGL's Vulkan bindings, wrapped as loadable mod files.
+//
+// Minecraft ships LWJGL without vulkan, vma or shaderc, and the renderer does not carry them
+// either, so on its own it dies at NoClassDefFoundError: org/lwjgl/vulkan/VkApplicationInfo.
+// FML loads any jar that has a mods.toml, so each artifact gets one written into it and rides
+// along in the same jar-in-jar directory as the renderer.
+val vulkanLibs: Configuration by configurations.creating
+
+// Minecraft already provides LWJGL core; a second copy breaks module resolution.
+configurations.named("vulkanLibs") { isTransitive = false }
+
+dependencies {
+    for (platform in listOf(null, "natives-linux", "natives-windows", "natives-macos",
+                            "natives-macos-arm64")) {
+        val suffix = if (platform == null) "" else ":$platform"
+        // lwjgl-vulkan ships natives for macOS only; elsewhere it uses the system loader.
+        if (platform == null || platform.contains("macos")) {
+            vulkanLibs("org.lwjgl:lwjgl-vulkan:$lwjgl_version$suffix")
+        }
+        vulkanLibs("org.lwjgl:lwjgl-vma:$lwjgl_version$suffix")
+        vulkanLibs("org.lwjgl:lwjgl-shaderc:$lwjgl_version$suffix")
+    }
+}
+
+val packVulkanLibs by tasks.registering {
+    description = "Writes a mods.toml into each LWJGL Vulkan artifact so FML will load it."
+    val sources: FileCollection = files(vulkanLibs)
+    val outputDir = layout.buildDirectory.dir("vulkan-libs")
+    val libraryVersion = lwjgl_version
+    inputs.files(sources)
+    outputs.dir(outputDir)
+    doLast {
+        val target = outputDir.get().asFile
+        target.deleteRecursively()
+        target.mkdirs()
+        for (source in sources.files) {
+            val fileName = source.name
+            val base = when {
+                fileName.startsWith("lwjgl-vulkan") -> "vulkan_lwjgl"
+                fileName.startsWith("lwjgl-vma") -> "vma"
+                else -> "vulkan_shaderc"
+            }
+            val platform = Regex("natives-([a-z0-9-]+)\\.jar").find(fileName)?.groupValues?.get(1)
+            val modId = if (platform == null) base else base + "_" + platform.replace("-", "")
+            val displayName = source.name.removeSuffix(".jar")
+            val descriptor = listOf(
+                "modLoader = \"lowcodefml\"",
+                "loaderVersion = \"[4,)\"",
+                "license = \"BSD-3-Clause\"",
+                "",
+                "[[mods]]",
+                "modId = \"$modId\"",
+                "version = \"$libraryVersion\"",
+                "displayName = \"$displayName\"",
+            ).joinToString("\n")
+            val destination = File(target, source.name)
+            ZipOutputStream(destination.outputStream().buffered()).use { out ->
+                ZipInputStream(source.inputStream().buffered()).use { input ->
+                    var entry = input.nextEntry
+                    while (entry != null) {
+                        if (entry.name != "META-INF/neoforge.mods.toml") {
+                            out.putNextEntry(ZipEntry(entry.name))
+                            input.copyTo(out)
+                            out.closeEntry()
+                        }
+                        entry = input.nextEntry
+                    }
+                }
+                out.putNextEntry(ZipEntry("META-INF/neoforge.mods.toml"))
+                out.write(descriptor.toByteArray())
+                out.closeEntry()
+            }
+        }
+    }
+}
+
+val rendererMetadata by tasks.registering {
+    description = "Writes the jar-in-jar manifest FML reads to find the embedded mods."
+    val output = rendererMetadataFile
+    val version = rendererVersion
+    val libraries: FileCollection = files(vulkanLibs)
+    val libraryVersion = lwjgl_version
+    outputs.file(output)
+    doLast {
+        fun entry(group: String, artifact: String, artifactVersion: String, path: String) = """
+            |    {
+            |      "identifier": { "group": "$group", "artifact": "$artifact" },
+            |      "version": { "range": "[$artifactVersion,)", "artifactVersion": "$artifactVersion" },
+            |      "path": "META-INF/jarjar/$path",
+            |      "isObfuscated": false
+            |    }
+        """.trimMargin()
+
+        val entries = mutableListOf(
+            entry("cn.ksmcbrigade.vulkan", "vulkanmod", version, "vulkanmod-$version.jar")
+        )
+        for (library in libraries.files.sortedBy { it.name }) {
+            entries += entry("org.lwjgl", library.name.removeSuffix(".jar"), libraryVersion,
+                library.name)
+        }
+        val file = output.get().asFile
+        file.parentFile.mkdirs()
+        file.writeText("{\n  \"jars\": [\n" + entries.joinToString(",\n") + "\n  ]\n}\n")
+    }
+}
+
+tasks.jar {
+    dependsOn(downloadRenderer, packVulkanLibs, rendererMetadata)
+    from(rendererJar) { into("META-INF/jarjar") }
+    from(layout.buildDirectory.dir("vulkan-libs")) { into("META-INF/jarjar") }
+    from(rendererMetadataFile) { into("META-INF/jarjar") }
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +447,16 @@ tasks.register<JavaExec>("smokeTest") {
 tasks.register("listConfigs") {
     val names = configurations.names.sorted()
     doLast { names.forEach(::println) }
+}
+
+tasks.register<JavaExec>("convertMods") {
+    group = "verification"
+    description = "Rewrites a mod jar's OpenGL calls to Actinium and caches the result."
+    mainClass = "net.actinium.interop.GlJarConverter"
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    args = (project.findProperty("jars") as String? ?: "run/mods").split(",")
+        .filter { it.isNotBlank() }
 }
 
 tasks.register<JavaExec>("scanMods") {

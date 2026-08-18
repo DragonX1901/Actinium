@@ -7,45 +7,13 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Runs before anything else Actinium owns, and exists for exactly one line of work.
- *
- * <p>Mixin instantiates config plugins while parsing {@code actinium.mixins.json}, during the
- * transformation service phase. That is well before Minecraft's main class touches GLFW, and
- * therefore before LWJGL's {@code MemoryStack} class loads and freezes its stack size into a
- * {@code static final} field. This is the only window in which raising that size is possible
- * without asking every user to edit their launcher's JVM arguments.
- *
- * <p>See {@link MemoryStackSize} for what breaks without it.
- */
 public class ActiniumMixinPlugin implements IMixinConfigPlugin {
-
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger("Actinium/Mixins");
 
-    /**
-     * Each compatibility mixin names the exact class it patches. Checking the specific class,
-     * rather than just "is VulkanMod installed", means a VulkanMod release that renames or
-     * removes one class disables only the mixin that targeted it.
-     */
-    private static final java.util.Map<String, String> VULKANMOD_TARGETS = java.util.Map.of(
-            "net.actinium.mixin.vulkanmod.GlUtilMixin", "net.vulkanmod.gl.GlUtil",
-            "net.actinium.mixin.vulkanmod.VkGlFramebufferMixin", "net.vulkanmod.gl.VkGlFramebuffer",
-            "net.actinium.mixin.vulkanmod.SPIRVUtilsMixin", "net.vulkanmod.vulkan.shader.SPIRVUtils",
-            "net.actinium.mixin.vulkanmod.VkGlTextureMixin", "net.vulkanmod.gl.VkGlTexture",
-            "net.actinium.mixin.vulkanmod.VulkanImageMixin", "net.vulkanmod.vulkan.texture.VulkanImage");
+    private static final String RENDERER_STUB = "net.vulkanmod.mixin.compatibility.gl.GL11M";
+    private static final String COMPATIBILITY_PACKAGE = "net.actinium.mixin.vulkanmod.";
 
-    /**
-     * LWJGL's per-thread memory stack, raised before {@code MemoryStack} loads.
-     *
-     * <p>Spelled out as plain strings rather than read from {@code MemoryStackSize}, because
-     * that class imports LWJGL. This plugin loads on both sides, a dedicated server has no
-     * LWJGL on its classpath, and touching it there kills the server before it starts:
-     *
-     * <pre>NoClassDefFoundError: org/lwjgl/system/Configuration</pre>
-     *
-     * <p>Nothing in this method may reference a client-only class.
-     */
     private static final String STACK_SIZE_PROPERTY = "org.lwjgl.system.stackSize";
     private static final String STACK_SIZE_KB = "1024";
 
@@ -54,6 +22,33 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
         if (System.getProperty(STACK_SIZE_PROPERTY) == null) {
             System.setProperty(STACK_SIZE_PROPERTY, STACK_SIZE_KB);
         }
+        disableEarlyWindowControl();
+    }
+
+    private static void disableEarlyWindowControl() {
+        try {
+            Class<?> config = Class.forName("net.neoforged.fml.loading.FMLConfig");
+            Class<?> values = Class.forName("net.neoforged.fml.loading.FMLConfig$ConfigValue");
+            Object earlyWindowControl = Enum.valueOf(values.asSubclass(Enum.class),
+                    "EARLY_WINDOW_CONTROL");
+            boolean enabled = (Boolean) config
+                    .getMethod("getBoolConfigValue", values)
+                    .invoke(null, earlyWindowControl);
+            if (!enabled) {
+                return;
+            }
+            config.getMethod("updateConfig", values, Object.class)
+                    .invoke(null, earlyWindowControl, Boolean.FALSE);
+            LOGGER.info("Turned off FML's OpenGL loading screen (earlyWindowControl). It draws "
+                    + "into a context the Vulkan backend destroys while mods are still loading, "
+                    + "and the process dies without a crash report when it does.");
+            silenceEarlyWindow();
+        } catch (ClassNotFoundException absent) {
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not turn off FML's OpenGL loading screen; if the game dies during "
+                    + "mod loading with no crash report, set earlyWindowControl = false in "
+                    + "config/fml.toml", e);
+        }
     }
 
     @Override
@@ -61,32 +56,81 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
         return null;
     }
 
-    /**
-     * Mixins under {@code net.actinium.mixin.vulkanmod} target another mod's classes. Applying
-     * them without that mod present is an error, so they are skipped when its classes are
-     * missing. Everything else applies unconditionally.
-     */
+    private static final java.util.Set<String> RENDERER_MIXINS = java.util.Set.of(
+            "net.actinium.mixin.client.WindowMixin",
+            "net.actinium.mixin.client.RenderSystemMixin",
+            "net.actinium.mixin.renderer.RenderStateMixin",
+            "net.actinium.mixin.renderer.TextureMixin",
+            "net.actinium.mixin.renderer.GeometryMixin",
+            "net.actinium.mixin.renderer.ShaderMixin",
+            "net.actinium.mixin.renderer.FramebufferMixin",
+            "net.actinium.mixin.renderer.BooleanStateRendererMixin");
+
+    private static final java.util.Set<String> COMPATIBILITY_ONLY = java.util.Set.of(
+            "net.actinium.mixin.GlStateManagerSafetyNet",
+            "net.actinium.mixin.GlBridgeMixin",
+            "net.actinium.mixin.GlBridgeFrameMixin");
+
+    public static boolean rendererMode() {
+        return Boolean.getBoolean("actinium.renderer");
+    }
+
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        String required = VULKANMOD_TARGETS.get(mixinClassName);
-        if (required != null) {
-            boolean present = classExists(required);
-            if (!present) {
-                LOGGER.info("Skipping {}: {} is not present", mixinClassName, required);
-            }
-            return present;
+        if (RENDERER_MIXINS.contains(mixinClassName)) {
+            return rendererMode();
+        }
+        if (COMPATIBILITY_ONLY.contains(mixinClassName)) {
+            return !rendererMode();
+        }
+        if ("net.actinium.mixin.lwjgl.GL11QueryMixin".equals(mixinClassName)) {
+            return classExists(RENDERER_STUB);
+        }
+        if (mixinClassName.startsWith(COMPATIBILITY_PACKAGE)) {
+            return classExists(targetClassName);
         }
         return true;
     }
 
-    /**
-     * Checks for a class by looking for its resource, never by loading it.
-     *
-     * <p>{@code Class.forName(name, false, loader)} still <em>defines</em> the class. A mixin
-     * target defined before Mixin gets to it can never be transformed, so probing targets that
-     * way silently disables the very mixin the probe was guarding. That regression looked like
-     * the format mixin simply not working, with no error anywhere.
-     */
+    private static void silenceEarlyWindow() {
+        try {
+            Class<?> handler = Class.forName("net.neoforged.fml.loading.ImmediateWindowHandler");
+            java.lang.reflect.Field providerField = handler.getDeclaredField("provider");
+            providerField.setAccessible(true);
+            Object provider = providerField.get(null);
+            if (provider == null
+                    || !provider.getClass().getName()
+                            .equals("net.neoforged.fml.earlydisplay.DisplayWindow")) {
+                return;
+            }
+            Class<?> dummy = Class.forName(
+                    "net.neoforged.fml.loading.ImmediateWindowHandler$DummyProvider");
+            java.lang.reflect.Constructor<?> constructor = dummy.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            Object replacement = constructor.newInstance();
+
+            ModuleLayer layer = ActiniumMixinPlugin.class.getModule().getLayer();
+            java.lang.reflect.Method updateModuleReads =
+                    dummy.getDeclaredMethod("updateModuleReads", ModuleLayer.class);
+            updateModuleReads.setAccessible(true);
+            updateModuleReads.invoke(replacement, layer != null ? layer : ModuleLayer.boot());
+            java.lang.reflect.Field handoff = dummy.getDeclaredField("NV_HANDOFF");
+            handoff.setAccessible(true);
+            if (handoff.get(null) == null) {
+                LOGGER.warn("FML's no-op provider could not resolve its window handoff; leaving "
+                        + "the loading screen in place. Restart to pick up the setting.");
+                return;
+            }
+
+            providerField.set(null, replacement);
+            LOGGER.info("Swapped the loading screen for FML's own no-op provider, which is what "
+                    + "the setting selects. This launch does not need a restart.");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not stop the loading screen repainting. This launch may end "
+                    + "without a crash report; the next one will not.", e);
+        }
+    }
+
     private static boolean classExists(String name) {
         String resource = name.replace('.', '/') + ".class";
         ClassLoader loader = ActiniumMixinPlugin.class.getClassLoader();
@@ -96,6 +140,7 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public void acceptTargets(Set<String> myTargets, Set<String> otherTargets) {
+        net.actinium.compat.MixinPreflight.run();
     }
 
     @Override

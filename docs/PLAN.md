@@ -23,10 +23,15 @@ is sequenced on that reading.
 | Settings screen bound to VulkanMod's 13 renderer settings | Working, verified |
 | Compatibility mixins: formats, framebuffer attachments, shader includes, pixel conversion | Working, verified |
 | GL context bridge for raw-GL callers | Working, verified |
-| Texture lifetime fixes (five) | All fire; the Tab crash still ends in VK_ERROR_DEVICE_LOST |
+| Texture and image lifetime fixes | Working; the crash in `vmaDestroyImage` is gone |
+| Mixin collisions with the renderer | Working: 19 dropped on a 14-mod profile, no mod named |
+| Create: Aeronautics, with sable and Veil | Loads, world loads, player spawns |
+| OpenGL context for mods that need one | Working, on by default; the Flywheel conflict is fixed |
+| Rendering verified by looking at it | Done on a real GPU, screenshotted |
 | Standalone Vulkan backend (`core/`) | Compiles, boots standalone, mixins disabled in game |
 | GL interop draw path (`interop/`) | Never executed a draw; gated off by default |
-| Packaging for a real installation | Done: 216 KB pure-Java jar, `vulkanmod` declared required |
+| Packaging for a real installation | Done: the renderer and its LWJGL modules ship inside the jar |
+| The built jar loading in a non-dev profile | Done: `runProdClient`, fresh profile, world loaded |
 | Repository presentation: README, licence, CI | Done |
 
 ## The decision that unblocks everything else
@@ -49,7 +54,7 @@ Three options:
 and it is clear whether raw-GL mods are a real demand or a hypothetical one. Gating costs a day.
 Cutting is irreversible. Finishing is unjustified without evidence anyone needs it.
 
-## Phase 1 — Make the jar installable
+## Phase 1, Make the jar installable
 
 Nothing else matters until someone other than the author can run this.
 
@@ -68,7 +73,7 @@ Nothing else matters until someone other than the author can run this.
 real NeoForge profile rather than the dev runtime. That needs a packaged VulkanMod install and
 is the first thing to do before tagging a release.
 
-## Phase 2 — Be honest in the interface
+## Phase 2, Be honest in the interface
 
 - Gate the interop layer behind a config flag, default off, described as experimental and
   non-rendering.
@@ -81,7 +86,7 @@ is the first thing to do before tagging a release.
 place of three rows that could never take effect, and the config entry states in plain words
 that the layer does not render.
 
-## Phase 3 — Repository presentation
+## Phase 3, Repository presentation
 
 - README stating what the mod does, what it requires, and what it does not do. The last part
   matters most: this mod sits next to VulkanMod and users will expect it to be a renderer.
@@ -94,29 +99,64 @@ that the layer does not render.
 a GPU, so CI still runs the pixel converter, bytecode and shader checks. Both paths verified
 locally.
 
-## Phase 4 — Close the compatibility gaps that are still open
+## Phase 4, Close the compatibility gaps that are still open
 
 Ordered by how many mods each unblocks, from measurements already taken.
 
-1. **Framebuffer attachment lifetime. Partly done.** The emulated framebuffer kept a
-   `VulkanImage` after the texture behind it was deleted, and the next barrier ran against a
-   dead handle. `VulkanModTextures` defers the free while an attachment references the image,
-   which is the lifetime OpenGL guarantees, and that removes the SIGSEGV. Pressing Tab still
-   ends in `VK_ERROR_DEVICE_LOST`, so more invalid work is reaching the queue from the same
-   path. Reproducing it needs a display; see the note on verification below.
-2. **Missing uniforms in the shader converter.** `FogStart`, `FogEnd` and `FogColor` are absent
-   from the uniform map, in the same way the format table was missing depth-stencil entries.
-   Same shape of fix as `GlUtilMixin`.
-3. **Mip level uploads.** `texImage2D` allocates one mip level while callers upload several.
+1. **Image lifetime. Done, and the cause was not where this plan said it was.** Three separate
+   defects were found by measurement, and only the first was the one originally written down:
 
-**Status: the crash is fixed.** Xaero's Minimap and World Map run in a world with radar icons
-on screen. Items 2 and 3 remain and are cosmetic by comparison: a shader with unmatched fog
-uniforms renders without fog rather than failing, and multi-level uploads land on a
-single-level image.
+   - A framebuffer kept a `VulkanImage` after the texture behind it was deleted.
+     `VulkanModTextures` defers the free while an attachment references the image, which is the
+     lifetime OpenGL guarantees.
+   - A barrier could still be recorded against a destroyed image. The guard tested
+     `handle == 0`, which misses the case that matters: a handle that reads as ordinary and has
+     been destroyed. It now tests a set of live handles.
+   - `VulkanImage` has a constructor that wraps an image it does not own, leaving `allocation`
+     at zero, and `doFree` cannot tell that from an owned image. It reaches
+     `vmaDestroyImage(allocator, image, VK_NULL_HANDLE)` and the process dies in the driver.
+     Actinium refuses a free with no allocation.
 
-**Done when:** the map mods either work or fail with a message that names the reason.
+   Two explanations were tested and rejected on the way: Actinium's own texture code (removing
+   both mixins changed nothing) and an image still in use (`vkDeviceWaitIdle` before the first
+   free changed nothing).
 
-## Phase 5 — Decide the interop layer's future
+2. **Mixin collisions with the renderer.** Nineteen mixins across four mods inject into methods
+   VulkanMod replaces, and every one is fatal. `MixinPreflight` drops them before the applicator
+   runs. Six of them also add an interface, so the mods that own them get `ClassCastException`
+   where they relied on it; the drop log names the interface for that reason.
+
+3. **Format table gaps.** Two more, both general: a pixel type the table does not list is fatal
+   however ordinary the format, and the snorm and 16-bit families were missing.
+
+4. **Mip level uploads. Open, and narrower than this plan claimed.** The count is not the
+   problem: `updateParams` tracks `maxLevel` and `allocateImage` asks for `maxLevel + 1` levels.
+   The problem is when it learns the count. A caller uploading levels in order raises `maxLevel`
+   on the second call, which sets `needsUpdate`, and the reallocation frees the image holding
+   level 0:
+
+   ```java
+   void allocateImage(int width, int height, int vkFormat) {
+       if (this.vulkanImage != null) { this.vulkanImage.free(); }
+       ...setMipLevels(this.maxLevel + 1)...
+   }
+   ```
+
+   Level 0 is uploaded, then discarded when level 1 arrives. Fixing it means copying the
+   existing levels across, or deferring allocation until the caller stops raising `maxLevel`.
+
+   Not attempted, because the symptom is how a texture looks and nothing here can see a texture.
+   It needs someone at a screen with a mod that ships mipmapped textures.
+
+The shader converter item that used to sit here has been dropped: `GlslPatcher` builds its
+uniform block from whatever the shader declares, so there is no fixed list for `FogStart` and
+friends to be missing from. It is also reachable only from the gated interop layer, which does
+not render.
+
+**Status: Create: Aeronautics loads, a world loads, and the player spawns in**, with sable and
+Veil 4.1.4 present. Xaero's Minimap and World Map run in a world with radar icons on screen.
+
+## Phase 5, Decide the interop layer's future
 
 Revisit options 1 and 2 with evidence. If it is kept, the work is one coherent change, not the
 five separate patches the code review found symptoms of:
@@ -132,11 +172,35 @@ five separate patches the code review found symptoms of:
 None of these can be verified until a draw actually runs, which is why they are one change and
 not five.
 
+## The decision left for the user, not for the code
+
+`compat.glContextBridge` cannot have a right default. Mods built on Veil die at
+`Minecraft.<init>:511` without an OpenGL context; mods built on Flywheel find one, choose an
+OpenGL backend, and fail in `GlVertexArrayDSA.bindAttributes`. Both were reproduced on one
+profile with nothing changing but whether the context existed.
+
+Offering it only during startup was tried, since the two moments do not overlap, and it aborts
+the process: Veil keeps calling OpenGL long past construction.
+
+So it is a switch, off by default, with both consequences stated where someone flipping it will
+read them. That was the state of the record for a long time, and it was wrong. There is no
+trade: the renderer stubs `GL11.glGetInteger` to return zero, Flywheel sizes its vertex arrays
+from a limit, and the bridge only changed whether Flywheel got far enough to read the zero.
+`GL11QueryMixin` answers the query, both kinds of mod work with the context present, and the
+default is now on.
+
 ## Verification has a hard limit
 
-Everything except rendering can be checked without a display: `build`, `smokeTest
--Pactinium.headless=true`, and `runGameTestServer`, which loads every mod and applies every
-mixin. A rendering bug cannot. It needs someone at a screen performing the action.
+The limit moved. `xvfb-run` gives the client a display without one on anyone's screen, so a full
+run, mod loading, world load, spawn, is now checkable headlessly, alongside `build`,
+`smokeTest -Pactinium.headless=true` and `runGameTestServer`.
+
+What it does not give is a real GPU driver for OpenGL. Vulkan still reaches the hardware, but
+`GL.createCapabilities` lands on llvmpipe, so any claim about how a mod's OpenGL path behaves on
+a real driver is unverified. The Flywheel failure above is exactly that kind of claim.
+
+Two limits remain absolute: whether anything looks right on screen, and whether an action a
+player performs works.
 
 That limit produced a wrong claim once already: a run that never pressed Tab was reported as
 proving the Tab crash fixed. Client-side rendering results belong to whoever ran the client, and
@@ -144,11 +208,26 @@ should come from `run/logs/latest.log` rather than from an automated guess.
 
 ## Before tagging 0.1.0
 
-1. Install the built jar into a real NeoForge profile alongside a released VulkanMod and confirm
-   it loads. Everything else has been verified in the dev runtime, which is not the same thing.
-2. Report the texture lifetime bug upstream with the decompiled analysis. The fix belongs in the
-   backend, not in a mixin sitting over it.
-3. Decide whether the standalone backend stays. It is dead weight in the jar, and `smokeTest`
+1. **Done.** The built jar runs from a mods folder with nothing else installed: it carries
+   VulkanModNeoForge 1.0.0 and the LWJGL Vulkan modules as jar-in-jar mod files, turns FML's
+   OpenGL loading screen off, and reaches a world. Verified on a profile with no config at all,
+   which is what a new install looks like.
+2. Done, and the answer was neither of the two on offer. The Flywheel failure was not a driver
+   artifact and not a conflict with the bridge: `GL11.glGetInteger` is stubbed to zero by the
+   renderer, and Flywheel sizes three arrays from it. Fixed in `GL11QueryMixin`; Create and
+   Flywheel now run with the context on.
+3. Report the lifetime bugs upstream. Four are worth sending, with the decompiled evidence:
+   the framebuffer holding a freed attachment, the barrier recorded against a destroyed image,
+   `doFree` calling `vmaDestroyImage` with a null allocation for an image the wrapper never
+   owned, and entity rendering writing through an unmapped pointer when JourneyMap is present.
+   The first three are understood and have workarounds here. The fourth has a repro and a fault
+   address but no traced mechanism, so it should be reported as symptoms rather than a diagnosis;
+   it cannot be worked around here because the faulting write is JIT-compiled vanilla code
+   through a raw pointer.
+
+   The fourth comes with a repro that needs nobody at a keyboard: add JourneyMap to Create, JEI
+   and Fabric API and run under `xvfb-run` with `--quickPlaySingleplayer`.
+4. Decide whether the standalone backend stays. It is dead weight in the jar, and `smokeTest`
    is the only thing keeping it.
 
 ## What "product ready" is not

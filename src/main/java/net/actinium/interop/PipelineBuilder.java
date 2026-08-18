@@ -24,22 +24,9 @@ import java.util.List;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * Builds a {@code VkPipeline} from a snapshot of emulated GL state.
- *
- * <p>This is the translation table at the heart of the interop layer: every GL enum that
- * survives into a pipeline gets a Vulkan equivalent here, and everything else has already
- * been dropped or turned into dynamic state by {@link ActiniumGLState}.
- *
- * <p>Building is expensive (driver shader compilation happens inside {@code
- * vkCreateGraphicsPipelines}). A {@code VkPipelineCache} is passed on every call so that
- * repeat builds across sessions hit the on-disk cache and cost microseconds.
- */
 final class PipelineBuilder {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Pipeline");
 
-    /** Serialised to disk on exit and reloaded at startup; kills first-run stutter. */
     private static long pipelineCacheObject = VK_NULL_HANDLE;
 
     private PipelineBuilder() {
@@ -74,7 +61,6 @@ final class PipelineBuilder {
                             .topology(ActiniumTranslator.topology(key.topology()))
                             .primitiveRestartEnable(false);
 
-            // Counts only; the actual rects are dynamic state set per draw.
             VkPipelineViewportStateCreateInfo viewportState = VkPipelineViewportStateCreateInfo.calloc(stack)
                     .sType$Default()
                     .viewportCount(1)
@@ -86,8 +72,7 @@ final class PipelineBuilder {
                     .rasterizerDiscardEnable(false)
                     .polygonMode(polygonMode(key.polygonMode()))
                     .cullMode(key.cull() ? cullMode(key.cullFace()) : VK_CULL_MODE_NONE)
-                    // Front face is inverted relative to GL because the viewport height is
-                    // negated in ActiniumTranslator.applyDynamicState; flipping Y flips winding.
+
                     .frontFace(key.frontFace() == GLConstants.GL_CCW
                             ? VK_FRONT_FACE_CLOCKWISE
                             : VK_FRONT_FACE_COUNTER_CLOCKWISE)
@@ -169,7 +154,7 @@ final class PipelineBuilder {
         }
 
         List<Integer> bindingBuffers = new ArrayList<>();
-        List<int[]> attributes = new ArrayList<>(); // location, binding, format, offset
+        List<int[]> attributes = new ArrayList<>();
 
         for (int location = 0; location < vao.attribs.length; location++) {
             ActiniumGLState.VertexAttrib attrib = vao.attribs[location];
@@ -191,9 +176,6 @@ final class PipelineBuilder {
             int divisor = 0;
             for (ActiniumGLState.VertexAttrib a : vao.attribs) {
                 if (a != null && a.enabled && a.buffer == bindingBuffers.get(i)) {
-                    // GL reads stride 0 as "tightly packed, derive it from size and type".
-                    // Vulkan reads stride 0 as "every vertex reads the same bytes", which
-                    // renders one vertex smeared across the whole draw.
                     stride = a.stride != 0 ? a.stride : elementSize(a);
                     divisor = a.divisor;
                     break;
@@ -218,12 +200,6 @@ final class PipelineBuilder {
                 .pVertexAttributeDescriptions(attrs);
     }
 
-    /**
-     * GL describes a vertex attribute as (component count, component type, normalized);
-     * Vulkan wants one packed {@code VkFormat}. Getting the normalized flag wrong here is
-     * the classic "everything is black" or "everything is white" interop bug: UNORM divides
-     * by 255, UINT does not.
-     */
     private static int vertexFormat(ActiniumGLState.VertexAttrib a) {
         int size = Math.clamp(a.size, 1, 4);
         return switch (a.type) {
@@ -302,7 +278,6 @@ final class PipelineBuilder {
         };
     }
 
-    /** Bytes one attribute occupies, used to derive a stride GL left implicit. */
     private static int elementSize(ActiniumGLState.VertexAttrib a) {
         int componentBytes = switch (a.type) {
             case GLConstants.GL_BYTE, GLConstants.GL_UNSIGNED_BYTE -> 1;

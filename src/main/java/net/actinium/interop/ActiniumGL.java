@@ -6,32 +6,9 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Interception surface for third-party OpenGL calls.
- *
- * <p>Every method here is signature-compatible with the {@code org.lwjgl.opengl.GLxx}
- * static method of the same name. {@link GLRedirectTransformer} rewrites
- * {@code INVOKESTATIC org/lwjgl/opengl/GL11.glDrawArrays (III)V} into
- * {@code INVOKESTATIC net/actinium/interop/ActiniumGL.glDrawArrays (III)V}, so a mod's
- * bytecode ends up calling this class without recompilation and without the mod knowing.
- *
- * <p>Two dispatch policies exist, chosen once at startup:
- * <ul>
- *   <li><b>TRANSLATE</b> — record into {@link ActiniumGLState}, materialise Vulkan work in
- *       {@link ActiniumTranslator} at draw time. Full control, no second driver, but only
- *       the modelled subset of GL exists.</li>
- *   <li><b>BRIDGE</b> — forward to a real GL implementation that is itself running on
- *       Vulkan (Mesa Zink or ANGLE). Complete GL coverage; costs a second logical device
- *       and image sharing. See {@link net.actinium.interop.bridge.GLBridge}.</li>
- * </ul>
- * BRIDGE is the default because "third-party mods render correctly" beats "third-party
- * mods render fast but only if they used the 60 calls we implemented".
- */
 public final class ActiniumGL {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/GL");
 
-    /** Counts calls that fell through to the unimplemented path, for the F3 overlay. */
     private static final AtomicLong UNSUPPORTED_CALLS = new AtomicLong();
 
     private ActiniumGL() {
@@ -45,19 +22,6 @@ public final class ActiniumGL {
         return ActiniumTranslator.get();
     }
 
-    // ==================================================================
-    // Texture binding — the canonical "state change" example
-    // ==================================================================
-
-    /**
-     * Mirrors {@code GL11.glBindTexture(int, int)}.
-     *
-     * <p>Under GL this immediately mutates driver state. Under Vulkan there is no such
-     * thing as a bound texture: the image is referenced by a descriptor set that is only
-     * meaningful inside a command buffer. So this records the binding and returns. The
-     * descriptor set is built lazily at draw time, which also means N consecutive binds
-     * to the same unit cost one write and zero GPU work.
-     */
     public static void glBindTexture(int target, int texture) {
         state().bindTexture(target, texture);
     }
@@ -76,14 +40,13 @@ public final class ActiniumGL {
             return;
         }
         switch (pname) {
-            case 0x2801 -> tex.minFilter = param;  // GL_TEXTURE_MIN_FILTER
-            case 0x2800 -> tex.magFilter = param;  // GL_TEXTURE_MAG_FILTER
-            case 0x2802 -> tex.wrapS = param;      // GL_TEXTURE_WRAP_S
-            case 0x2803 -> tex.wrapT = param;      // GL_TEXTURE_WRAP_T
+            case 0x2801 -> tex.minFilter = param;
+            case 0x2800 -> tex.magFilter = param;
+            case 0x2802 -> tex.wrapS = param;
+            case 0x2803 -> tex.wrapT = param;
             default -> LOGGER.debug("glTexParameteri pname 0x{} ignored", Integer.toHexString(pname));
         }
-        // Sampler objects are immutable in Vulkan: changing a filter invalidates the
-        // cached VkSampler, it does not mutate it.
+
         translator().invalidateSampler(tex);
     }
 
@@ -96,10 +59,6 @@ public final class ActiniumGL {
         }
         translator().uploadTexture(tex, level, internalFormat, width, height, format, type, pixels);
     }
-
-    // ==================================================================
-    // Buffers
-    // ==================================================================
 
     public static int glGenBuffers() {
         return state().genBuffer();
@@ -131,10 +90,6 @@ public final class ActiniumGL {
         }
     }
 
-    // ==================================================================
-    // Vertex arrays
-    // ==================================================================
-
     public static int glGenVertexArrays() {
         return state().genVertexArray();
     }
@@ -155,10 +110,6 @@ public final class ActiniumGL {
     public static void glDisableVertexAttribArray(int index) {
         state().enableVertexAttribArray(index, false);
     }
-
-    // ==================================================================
-    // Pipeline state
-    // ==================================================================
 
     public static void glEnable(int cap) {
         state().enable(cap);
@@ -208,17 +159,6 @@ public final class ActiniumGL {
         state().bindFramebuffer(target, framebuffer);
     }
 
-    // ==================================================================
-    // Draws — the point where deferred state becomes GPU work
-    // ==================================================================
-
-    /**
-     * Mirrors {@code GL11.glDrawArrays(int, int, int)}.
-     *
-     * <p>This is where the accumulated state finally matters: resolve or build the PSO,
-     * bind descriptors, record into the current secondary command buffer. Nothing is
-     * submitted here — submission happens once per render pass at frame end.
-     */
     public static void glDrawArrays(int mode, int first, int count) {
         translator().drawArrays(mode, first, count);
     }
@@ -231,15 +171,6 @@ public final class ActiniumGL {
         translator().drawElementsInstanced(mode, count, type, indices, instanceCount);
     }
 
-    // ==================================================================
-    // Calls with no Vulkan analogue
-    // ==================================================================
-
-    /**
-     * Immediate mode. Fixed-function {@code glBegin}/{@code glEnd} has no translation:
-     * there is no such thing as a vertex stream without a buffer in Vulkan. Mods still
-     * using it (mostly ancient 1.7-era ports) must run in BRIDGE mode.
-     */
     public static void glBegin(int mode) {
         reportUnsupported("glBegin");
     }
@@ -248,7 +179,6 @@ public final class ActiniumGL {
         reportUnsupported("glEnd");
     }
 
-    /** Display lists were removed in GL core 3.2; nothing modern emits them. */
     public static int glGenLists(int range) {
         reportUnsupported("glGenLists");
         return 0;

@@ -9,26 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * The emulated OpenGL state machine.
- *
- * <p>OpenGL is a giant mutable global; Vulkan is immutable pipeline objects plus explicit
- * descriptors. Bridging the two means recording every GL state change here, doing nothing,
- * and only materialising Vulkan objects when a draw call finally arrives. That deferral is
- * the whole point: a mod that calls {@code glEnable(GL_BLEND)} forty times between two draws
- * costs forty field writes, not forty pipeline rebuilds.
- *
- * <p><b>Threading.</b> Real GL is per-context and Minecraft drives it from the render thread
- * only. Instances are therefore thread-confined and deliberately unsynchronised; every entry
- * point asserts the render thread in dev. A mod touching GL off-thread is already broken
- * under vanilla and gets a loud error rather than silent corruption.
- *
- * <p><b>Object names.</b> GL names are dense small integers that mods store in fields and
- * compare against zero. We hand out our own dense integers and keep a side table mapping them
- * to Vulkan handles, so {@code glGenTextures} → {@code int} keeps working unchanged.
- */
 public final class ActiniumGLState {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/GLState");
 
     public static final int MAX_TEXTURE_UNITS = 32;
@@ -40,7 +21,6 @@ public final class ActiniumGLState {
         return INSTANCE;
     }
 
-    // ---- name allocation --------------------------------------------------
     private final AtomicInteger nextName = new AtomicInteger(1);
     private final Map<Integer, GLTexture> textures = new HashMap<>();
     private final Map<Integer, GLBuffer> buffers = new HashMap<>();
@@ -48,7 +28,6 @@ public final class ActiniumGLState {
     private final Map<Integer, GLProgram> programs = new HashMap<>();
     private final Map<Integer, GLFramebuffer> framebuffers = new HashMap<>();
 
-    // ---- binding points ---------------------------------------------------
     private int activeTextureUnit = 0;
     private final int[] boundTexture2D = new int[MAX_TEXTURE_UNITS];
     private int boundArrayBuffer = 0;
@@ -58,7 +37,6 @@ public final class ActiniumGLState {
     private int boundDrawFramebuffer = 0;
     private int boundReadFramebuffer = 0;
 
-    // ---- fixed-function-ish pipeline state --------------------------------
     private boolean blendEnabled = false;
     private int blendSrcRgb = GLConstants.GL_ONE;
     private int blendDstRgb = GLConstants.GL_ZERO;
@@ -84,16 +62,11 @@ public final class ActiniumGLState {
     private float lineWidth = 1.0f;
     private int polygonMode = GLConstants.GL_FILL;
 
-    /** Bumped on every state write; the pipeline cache uses it to skip re-hashing. */
     private int generation = 0;
 
     private ActiniumGLState() {
         Arrays.fill(boundTexture2D, 0);
     }
-
-    // ------------------------------------------------------------------
-    // Object model
-    // ------------------------------------------------------------------
 
     public static final class GLTexture {
         public final int name;
@@ -108,7 +81,7 @@ public final class ActiniumGLState {
         public int magFilter = GLConstants.GL_LINEAR;
         public int wrapS = GLConstants.GL_REPEAT;
         public int wrapT = GLConstants.GL_REPEAT;
-        /** Tracked so we can emit the right barrier instead of a blanket pipeline flush. */
+
         public int currentLayout;
 
         GLTexture(int name) {
@@ -123,7 +96,7 @@ public final class ActiniumGLState {
         public long size;
         public int usageHint;
         public ByteBuffer mapped;
-        /** True when the buffer lives in HOST_VISIBLE|HOST_COHERENT and needs no staging copy. */
+
         public boolean persistentlyMapped;
 
         GLBuffer(int name) {
@@ -158,7 +131,7 @@ public final class ActiniumGLState {
         public long fragmentModule;
         public long descriptorSetLayout;
         public long pipelineLayout;
-        /** Host mirror of the packed std140 block the GLSL patcher generated. */
+
         public ByteBuffer uniformStaging;
         public boolean uniformsDirty;
         public final Map<String, Integer> uniformOffsets = new HashMap<>();
@@ -181,10 +154,6 @@ public final class ActiniumGLState {
             this.name = name;
         }
     }
-
-    // ------------------------------------------------------------------
-    // Name generation
-    // ------------------------------------------------------------------
 
     public int genTexture() {
         int name = nextName.getAndIncrement();
@@ -236,10 +205,6 @@ public final class ActiniumGLState {
         return framebuffers.get(name);
     }
 
-    // ------------------------------------------------------------------
-    // State mutators — hot path, called thousands of times per frame
-    // ------------------------------------------------------------------
-
     public void activeTexture(int unit) {
         int index = unit - GLConstants.GL_TEXTURE0;
         if (index < 0 || index >= MAX_TEXTURE_UNITS) {
@@ -251,8 +216,6 @@ public final class ActiniumGLState {
 
     public void bindTexture(int target, int name) {
         if (target != GLConstants.GL_TEXTURE_2D) {
-            // 1D/3D/cube exist but nothing in the vanilla or common-mod path uses them
-            // heavily; record and let the translator decide.
             LOGGER.debug("bindTexture on non-2D target 0x{}", Integer.toHexString(target));
         }
         if (boundTexture2D[activeTextureUnit] != name) {
@@ -268,7 +231,7 @@ public final class ActiniumGLState {
                 boundElementArrayBuffer = name;
                 GLVertexArray vao = vertexArrays.get(boundVertexArray);
                 if (vao != null) {
-                    vao.elementBuffer = name; // element binding is VAO state in core GL
+                    vao.elementBuffer = name;
                 }
             }
             default -> LOGGER.debug("bindBuffer on unhandled target 0x{}", Integer.toHexString(target));
@@ -315,8 +278,6 @@ public final class ActiniumGLState {
             case GLConstants.GL_CULL_FACE -> cullEnabled = on;
             case GLConstants.GL_SCISSOR_TEST -> scissorEnabled = on;
             default -> {
-                // GL_ALPHA_TEST, GL_LIGHTING, GL_FOG and friends are fixed-function
-                // and have no Vulkan equivalent; shaders must implement them.
                 LOGGER.debug("Ignoring glEnable/Disable(0x{})", Integer.toHexString(cap));
                 return;
             }
@@ -372,7 +333,7 @@ public final class ActiniumGLState {
 
     public void lineWidth(float w) {
         lineWidth = w;
-        // Dynamic state — no pipeline invalidation.
+
     }
 
     public void viewport(int x, int y, int w, int h) {
@@ -380,7 +341,7 @@ public final class ActiniumGLState {
         viewport[1] = y;
         viewport[2] = w;
         viewport[3] = h;
-        // Dynamic state.
+
     }
 
     public void scissor(int x, int y, int w, int h) {
@@ -388,7 +349,7 @@ public final class ActiniumGLState {
         scissorBox[1] = y;
         scissorBox[2] = w;
         scissorBox[3] = h;
-        // Dynamic state.
+
     }
 
     public void clearColor(float r, float g, float b, float a) {
@@ -434,12 +395,6 @@ public final class ActiniumGLState {
         generation++;
     }
 
-    /**
-     * Real GL raises {@code GL_INVALID_VALUE} for an attribute index past the limit and carries
-     * on. Indexing the array directly would instead throw out of the redirected call and take
-     * the render thread with it. A negative index is the common case: an unresolved
-     * {@code glGetAttribLocation} returns -1 and mods pass it straight through.
-     */
     private boolean outOfRange(int index, String call) {
         if (index >= 0 && index < MAX_VERTEX_ATTRIBS) {
             return false;
@@ -447,10 +402,6 @@ public final class ActiniumGLState {
         LOGGER.warn("{}(index={}) out of range; ignored as GL_INVALID_VALUE would be", call, index);
         return true;
     }
-
-    // ------------------------------------------------------------------
-    // Accessors used by the translator
-    // ------------------------------------------------------------------
 
     public int activeTextureUnit() {
         return activeTextureUnit;
@@ -516,11 +467,6 @@ public final class ActiniumGLState {
         return generation;
     }
 
-    /**
-     * Packs everything a {@code VkGraphicsPipelineCreateInfo} depends on into a key.
-     * Deliberately excludes viewport/scissor/line width, which are dynamic state and must
-     * never fork the pipeline cache.
-     */
     public PipelineKey pipelineKey(int glPrimitiveTopology) {
         return new PipelineKey(
                 boundProgram,
@@ -548,10 +494,7 @@ public final class ActiniumGLState {
                 hash = hash * 31;
                 continue;
             }
-            // The source buffer decides which Vulkan binding an attribute lands in, so two
-            // VAOs that describe identical attributes but group them across buffers differently
-            // need different pipelines. Leaving it out let the second reuse the first's cached
-            // pipeline and read from the wrong buffer.
+
             hash = hash * 31 + a.buffer;
             hash = hash * 31 + a.size;
             hash = hash * 31 + a.type;
@@ -563,7 +506,6 @@ public final class ActiniumGLState {
         return hash;
     }
 
-    /** Immutable pipeline identity. Record equality gives us the cache lookup for free. */
     public record PipelineKey(
             int program, int framebuffer, int topology,
             boolean blend, int blendSrcRgb, int blendDstRgb, int blendSrcAlpha, int blendDstAlpha, int blendEq,

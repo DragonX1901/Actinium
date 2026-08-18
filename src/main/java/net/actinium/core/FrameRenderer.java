@@ -25,21 +25,7 @@ import java.nio.LongBuffer;
 import static org.lwjgl.vulkan.KHRSwapchain.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * Minimal frame loop: acquire → record → submit → present, with {@code FRAMES_IN_FLIGHT}
- * frames overlapping.
- *
- * <p>Two frames in flight is the deliberate default. Three hides more CPU jitter but adds a
- * frame of input latency, which is more noticeable in Minecraft than the extra smoothness is
- * worth. The value is a constant rather than a config option because changing it also changes
- * how many copies of every per-frame resource the rest of the engine must keep.
- *
- * <p>Everything here is per-frame, never per-draw: one primary command buffer per frame,
- * into which the terrain, entity and interop passes record as secondaries. Submitting once
- * per frame instead of once per pass is most of the CPU win over the GL backend.
- */
 public final class FrameRenderer {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Frame");
 
     private static final int FRAMES_IN_FLIGHT = 2;
@@ -71,11 +57,6 @@ public final class FrameRenderer {
         LOGGER.info("Frame renderer ready ({} frames in flight)", FRAMES_IN_FLIGHT);
     }
 
-    // ------------------------------------------------------------------
-    // Per-frame
-    // ------------------------------------------------------------------
-
-    /** @return the primary command buffer for this frame, or null when the frame was skipped. */
     public VkCommandBuffer beginFrame(float r, float g, float b, float a) {
         if (needsRecreate) {
             return null;
@@ -126,8 +107,7 @@ public final class FrameRenderer {
                     .sType$Default()
                     .waitSemaphoreCount(1)
                     .pWaitSemaphores(stack.longs(imageAvailable[frameIndex]))
-                    // Wait only at the point the swapchain image is actually written; vertex
-                    // and fragment work before that overlaps with the acquire.
+
                     .pWaitDstStageMask(stack.ints(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
                     .pCommandBuffers(stack.pointers(cmd))
                     .pSignalSemaphores(stack.longs(renderFinished[frameIndex]));
@@ -170,10 +150,6 @@ public final class FrameRenderer {
         return renderPass;
     }
 
-    // ------------------------------------------------------------------
-    // Setup
-    // ------------------------------------------------------------------
-
     private void createRenderPass() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkAttachmentDescription.Buffer attachments = VkAttachmentDescription.calloc(1, stack);
@@ -197,8 +173,6 @@ public final class FrameRenderer {
                     .colorAttachmentCount(1)
                     .pColorAttachments(colorRef);
 
-            // Without this dependency the implicit layout transition to
-            // COLOR_ATTACHMENT_OPTIMAL can run before the acquire semaphore signals.
             VkSubpassDependency.Buffer dependency = VkSubpassDependency.calloc(1, stack);
             dependency.get(0)
                     .srcSubpass(VK_SUBPASS_EXTERNAL)
@@ -269,8 +243,7 @@ public final class FrameRenderer {
     private void createSyncObjects() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkSemaphoreCreateInfo semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack).sType$Default();
-            // Created signalled so the very first beginFrame does not deadlock waiting on a
-            // fence that nothing has submitted yet.
+
             VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.calloc(stack)
                     .sType$Default()
                     .flags(VK_FENCE_CREATE_SIGNALED_BIT);

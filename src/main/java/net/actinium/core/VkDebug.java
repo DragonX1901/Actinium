@@ -14,15 +14,7 @@ import java.nio.LongBuffer;
 import static org.lwjgl.system.MemoryUtil.NULL;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 
-/**
- * Routes {@code VK_EXT_debug_utils} messages into the Minecraft log.
- *
- * <p>Validation errors are logged, never thrown: a mod that misuses the interop layer
- * should show up as a red log line and a broken quad, not a hard crash mid-frame.
- * Set {@code -Dactinium.validation.strict=true} to turn errors fatal while debugging.
- */
 public final class VkDebug {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Vulkan");
     private static final boolean STRICT = Boolean.getBoolean("actinium.validation.strict");
 

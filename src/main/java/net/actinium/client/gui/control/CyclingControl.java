@@ -9,14 +9,7 @@ import net.minecraft.network.chat.Component;
 import java.util.List;
 import java.util.function.Function;
 
-/**
- * Steps through a fixed set of values. Left click advances, right click goes back.
- *
- * <p>Right click matters more than it looks: a list of six present modes takes five clicks to
- * reach the one before the current, and going backwards takes one.
- */
 public final class CyclingControl<T> implements Control<T> {
-
     private final List<T> values;
     private final Function<T, Component> labels;
     private final int valueWidth;
@@ -46,7 +39,6 @@ public final class CyclingControl<T> implements Control<T> {
     }
 
     private final class Element extends ControlElement<T> {
-
         Element(Option<T> option, int x, int y, int width, int height) {
             super(option, x, y, width, height);
         }

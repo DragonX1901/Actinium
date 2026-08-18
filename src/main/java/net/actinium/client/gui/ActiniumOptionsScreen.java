@@ -15,19 +15,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 
-/**
- * Actinium's video settings screen.
- *
- * <p>Layout follows Sodium's, because it solves the problem well: tabs across the top, one
- * scrolling column of grouped settings on the left, and a description panel on the right that
- * explains whatever you are pointing at. Nothing writes through until you press Apply, so you
- * can undo an experiment without remembering what you changed.
- *
- * <p>The one departure from Sodium: the accent bar on a modified row. It tells you how many
- * settings you have touched without reading any of them.
- */
 public class ActiniumOptionsScreen extends Screen {
-
     private static final int TAB_Y = 8;
     private static final int TAB_HEIGHT = 18;
     private static final int CONTENT_Y = TAB_Y + TAB_HEIGHT + 6;
@@ -60,14 +48,9 @@ public class ActiniumOptionsScreen extends Screen {
     public ActiniumOptionsScreen(Screen parent) {
         super(Component.translatable("actinium.options.title"));
         this.parent = parent;
-        // Recorded now so Apply can tell which VulkanMod settings actually changed and skip
-        // the expensive side effects for the ones that did not.
+
         VulkanModOptionsStorage.INSTANCE.snapshot();
     }
-
-    // ------------------------------------------------------------------
-    // Construction
-    // ------------------------------------------------------------------
 
     @Override
     protected void init() {
@@ -98,9 +81,6 @@ public class ActiniumOptionsScreen extends Screen {
         }
         contentHeight = y + scroll - CONTENT_Y;
 
-        // Clamp after measuring. Resizing the window or switching to a shorter page can leave
-        // scroll past the end, and mouseScrolled refuses to act once the content fits, so the
-        // rows would stay pushed off the top with no way back.
         int viewport = height - BUTTON_BAR_HEIGHT - CONTENT_Y;
         int maxScroll = Math.max(0, contentHeight - viewport);
         if (scroll > maxScroll) {
@@ -133,7 +113,6 @@ public class ActiniumOptionsScreen extends Screen {
         updateButtonStates();
     }
 
-    /** Re-runs layout after a scroll clamp, without recursing through init(). */
     private void rebuildRows() {
         rebuildWidgets();
     }
@@ -150,19 +129,6 @@ public class ActiniumOptionsScreen extends Screen {
         undoButton.active = dirty;
     }
 
-    // ------------------------------------------------------------------
-    // Rendering
-    // ------------------------------------------------------------------
-
-    /**
-     * Draws everything explicitly instead of calling {@code super.render}.
-     *
-     * <p>{@code Screen#render} calls {@code renderBackground} itself before drawing widgets. A
-     * screen that paints its own panels first, then delegates, gets those panels painted over
-     * by that second background pass: the panels and their headers come out dimmed while the
-     * widgets on top stay bright. Owning the order fixes it and also lets the option rows be
-     * scissored to their panel while the tabs and buttons outside it are not.
-     */
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics, mouseX, mouseY, partialTick);
@@ -199,12 +165,6 @@ public class ActiniumOptionsScreen extends Screen {
         updateButtonStates();
     }
 
-    /**
-     * A thin amber bar on the panel's right edge when the page does not fit.
-     *
-     * <p>Without it, a page that overflows looks like a page with a row sliced in half at the
-     * bottom, and nothing says the wheel does anything.
-     */
     private void drawScrollbar(GuiGraphics guiGraphics, int panelRight, int top, int bottom) {
         int viewport = bottom - top;
         if (contentHeight <= viewport) {
@@ -239,19 +199,11 @@ public class ActiniumOptionsScreen extends Screen {
         return null;
     }
 
-    /**
-     * Draws the description panel for whatever is hovered.
-     *
-     * <p>Scissored to its own panel. A long tooltip plus an impact line plus two apply-flag
-     * notes overruns the panel at 480p, and without clipping it spills across the button bar
-     * and out of the screen. Clipping keeps the layout intact; the panel is sized for the
-     * longest string that matters rather than the longest possible one.
-     */
     private void renderDescription(GuiGraphics guiGraphics, int top, int bottom) {
         int x = MARGIN + COLUMN_WIDTH + 12;
         int w = width - x - MARGIN;
         if (w < 120) {
-            return; // window too narrow for a second column; the rows still work
+            return;
         }
         drawPanel(guiGraphics, x - 4, top, w + 8, bottom - top);
 
@@ -302,14 +254,6 @@ public class ActiniumOptionsScreen extends Screen {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Input
-    // ------------------------------------------------------------------
-
-    /**
-     * Rows scrolled out of the panel are invisible but still in {@code children()}. Without
-     * this guard a click in the tab strip can activate a row hidden behind it.
-     */
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (mouseY < CONTENT_Y - 4 || mouseY > height - BUTTON_BAR_HEIGHT) {
@@ -352,7 +296,6 @@ public class ActiniumOptionsScreen extends Screen {
         rebuildWidgets();
     }
 
-    /** Rows sit outside the visible panel while scrolled; keep hover honest. */
     private boolean isRowVisible(ControlElement<?> row) {
         return row.getY() + row.getHeight() > CONTENT_Y - 4
                 && row.getY() < height - BUTTON_BAR_HEIGHT;
@@ -392,12 +335,7 @@ public class ActiniumOptionsScreen extends Screen {
         minecraft.setScreen(parent);
     }
 
-    // ------------------------------------------------------------------
-    // Tabs
-    // ------------------------------------------------------------------
-
     private final class TabButton extends AbstractWidget {
-
         private final int index;
 
         TabButton(int x, int y, int width, int height, Component title, int index) {

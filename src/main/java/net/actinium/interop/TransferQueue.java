@@ -16,16 +16,7 @@ import java.util.Deque;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * One-shot transfer command buffers plus deferred destruction of staging allocations.
- *
- * <p>Uploads are submitted immediately but their staging buffers cannot be freed until the
- * GPU has consumed them. Freeing early is the classic use-after-free that shows up as
- * corrupted terrain three seconds later on one vendor's driver and never on the others.
- * Everything retired here is destroyed only after its fence signals.
- */
 final class TransferQueue {
-
     private record Pending(long fence, VkCommandBuffer cmd, long buffer, long allocation) {
     }
 
@@ -86,7 +77,7 @@ final class TransferQueue {
         while (!IN_FLIGHT.isEmpty()) {
             Pending head = IN_FLIGHT.peek();
             if (vkGetFenceStatus(ctx.device(), head.fence()) != VK_SUCCESS) {
-                break; // queue is FIFO by submit order; nothing behind this can be done
+                break;
             }
             IN_FLIGHT.poll();
             Vma.vmaDestroyBuffer(ctx.allocator(), head.buffer(), head.allocation());

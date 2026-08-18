@@ -14,54 +14,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Resolves shader includes for any shader, not just the backend's own.
- *
- * <h2>The bug this replaces</h2>
- * VulkanMod's {@code SPIRVUtils.processSource} resolves an include like this:
- *
- * <pre>
- * String included = line.replace("#include", "").replace(" ", "")
- *                       .replace("\"", "").replace("\r", "").replace("\n", "");
- * builder.append(IOUtils.toString(Objects.requireNonNull(
- *         SPIRVUtils.class.getResourceAsStream("/assets/vulkanmod/shaders/include/" + included))));
- * </pre>
- *
- * <p>Two problems, both generic.
- *
- * <p>It strips double quotes but not angle brackets. Vanilla's own directive is
- * {@code #moj_import <fog.glsl>}, and that is the form mods copy, so the lookup key becomes
- * the literal {@code <fog.glsl>} and misses a file the backend actually ships. The
- * {@code requireNonNull} then throws an NPE that the surrounding {@code catch (IOException)}
- * does not catch, shader creation aborts, the pipeline stays null, and every later frame logs
- * <em>"has no initialized pipeline"</em>.
- *
- * <p>It also only ever looks inside the backend's own jar. A mod shipping its own include has
- * nowhere to be found.
- *
- * <p>Xaero's Minimap hits the first; that is what {@code xaerolib/framebuffer_lines} failed on.
- * Neither problem is specific to any mod: {@code #moj_import <...>} is the documented vanilla
- * spelling.
- *
- * <h2>Resolution order</h2>
- * <ol>
- *   <li>the backend's bundled includes, so its own shaders keep the exact source they expect</li>
- *   <li>{@code shaders/include/<name>} through Minecraft's resource manager, which sees every
- *       mod and every resource pack</li>
- *   <li>{@code shaders/core/<name>}, where vanilla keeps {@code fog.glsl} and friends</li>
- * </ol>
- *
- * <p>An unresolved include is left in place with a comment and logged once. shaderc then reports
- * the undefined symbols with line numbers, which is a far better failure than an NPE three
- * frames of stack away from the shader that caused it.
- */
 public final class ShaderIncludes {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Shaders");
 
     private static final String BACKEND_INCLUDES = "/assets/vulkanmod/shaders/include/";
 
-    /** Nested includes are legal; this bounds the recursion rather than trusting the input. */
     private static final int MAX_DEPTH = 8;
 
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
@@ -116,7 +73,6 @@ public final class ShaderIncludes {
         return out.toString();
     }
 
-    /** @return the file named by an include directive, or null when the line is not one. */
     private static String includeTarget(String line) {
         String rest;
         if (line.startsWith("#include")) {
@@ -127,9 +83,6 @@ public final class ShaderIncludes {
             return null;
         }
 
-        // Both spellings are legal and mods use both:
-        //   #moj_import <fog.glsl>     vanilla's own form
-        //   #include "fog.glsl"        what the backend's shaders use
         String name = rest.replace("<", "").replace(">", "")
                 .replace("\"", "").replace("\r", "").strip();
         return name.isEmpty() ? null : name;
@@ -155,14 +108,6 @@ public final class ShaderIncludes {
         return null;
     }
 
-    /**
-     * Reads a bundled include out of the backend's own jar.
-     *
-     * <p>Loaded through the backend's class, not Actinium's. Mod jars get separate
-     * classloaders, so {@code ShaderIncludes.class.getResourceAsStream} cannot see VulkanMod's
-     * resources at all: every lookup missed, including the {@code fog.glsl} the backend ships
-     * and the shader genuinely needed.
-     */
     private static String fromClasspath(String path) {
         Class<?> owner = backendClass();
         if (owner == null) {
@@ -187,11 +132,6 @@ public final class ShaderIncludes {
         return backend;
     }
 
-    /**
-     * Tries the include as a namespaced id first, then against every loaded namespace. An
-     * include written as {@code <fog.glsl>} carries no namespace, and the file may belong to
-     * any mod, so the namespace list is the only way to find it without guessing.
-     */
     private static String fromResources(ResourceManager resources, String path) {
         if (path.contains(":")) {
             return readResource(resources, ResourceLocation.tryParse(path));

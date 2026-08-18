@@ -10,15 +10,7 @@ import java.util.Map;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * {@code VkSampler} objects keyed on GL filter/wrap parameters.
- *
- * <p>GL folds sampler state into the texture object; Vulkan splits them. Since the space of
- * (min, mag, wrapS, wrapT) combinations Minecraft and its mods actually use is tiny — under
- * a dozen — every distinct combination is created once and shared forever.
- */
 final class SamplerCache {
-
     private static final Map<Long, Long> CACHE = new HashMap<>();
 
     private SamplerCache() {
@@ -75,10 +67,6 @@ final class SamplerCache {
         };
     }
 
-    /**
-     * GL encodes the mip filter inside the min filter enum; Vulkan has a separate field.
-     * Getting this wrong is why "the world looks fine but distant blocks shimmer".
-     */
     private static int mipmapMode(int glMinFilter) {
         return switch (glMinFilter) {
             case GLConstants.GL_NEAREST_MIPMAP_LINEAR,

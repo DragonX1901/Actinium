@@ -7,57 +7,14 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
 
-/**
- * Keeps a texture's image alive while a framebuffer still points at it.
- *
- * <h2>The rule this restores</h2>
- * In OpenGL, deleting a texture that is attached to a framebuffer does not destroy it. The
- * attachment holds a reference, and the image survives until the framebuffer detaches it or is
- * itself deleted. Mods rely on this constantly: build a target, attach a texture, delete the
- * texture name, keep drawing.
- *
- * <p>VulkanMod's emulation frees immediately:
- *
- * <pre>
- * public static void glDeleteTextures(int i) {
- *     VkGlTexture glTexture = map.remove(i);
- *     VulkanImage image = glTexture != null ? glTexture.vulkanImage : null;
- *     if (image != null) {
- *         MemoryManager.getInstance().addToFreeable(image);
- *     }
- * }
- * </pre>
- *
- * <p>Nothing tells the framebuffer. Its {@code colorAttachment} and {@code depthAttachment}
- * still reference the image, and the next {@code beginRenderPass} records a layout transition
- * against a handle the driver has released:
- *
- * <pre>
- * C  [libnvidia-glcore.so]
- * J  VulkanImage.transitionLayout
- * J  RenderPass.beginRenderPass
- * J  VkGlFramebuffer.bindFramebuffer
- * j  xaero...ImprovedFramebuffer.beginWrite
- * </pre>
- *
- * <h2>Why deferring the free, rather than detaching</h2>
- * Clearing the attachment looks like the tidier fix and is not safe: {@code RenderPass}
- * dereferences {@code framebuffer.getColorAttachment()} without a null check, so nulling it
- * turns a driver crash into an NPE. Removing the framebuffer from its map instead makes a later
- * bind throw "No Framebuffer with ID".
- *
- * <p>Leaving the image allocated matches what GL actually promises. The cost is that an image
- * outlives its texture name until the framebuffer goes, which is a bounded leak rather than a
- * crash, and is the same lifetime a real driver would give it.
- */
 public final class VulkanModTextures {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Textures");
 
     private static final String TEXTURE = "net.vulkanmod.gl.VkGlTexture";
     private static final String FRAMEBUFFER = "net.vulkanmod.gl.VkGlFramebuffer";
 
     private static Field textureMap;
+    private static Field boundTexture;
     private static Field textureImage;
     private static Field framebufferMap;
     private static Field colorAttachment;
@@ -71,11 +28,6 @@ public final class VulkanModTextures {
     private VulkanModTextures() {
     }
 
-    /**
-     * @param id the GL texture name being deleted
-     * @return true when a framebuffer still references the image, meaning the caller must free
-     *         the name but leave the image allocated
-     */
     public static boolean isAttachedToFramebuffer(int id) {
         if (!resolve()) {
             return false;
@@ -108,7 +60,6 @@ public final class VulkanModTextures {
         }
     }
 
-    /** Frees the GL name without touching the image, for the deferred case. */
     public static void releaseNameOnly(int id) {
         if (!resolve()) {
             return;
@@ -126,15 +77,6 @@ public final class VulkanModTextures {
         return deferred;
     }
 
-    /**
-     * Describes an image that is about to be skipped by the barrier guard.
-     *
-     * <p>The guard turns a driver segfault into a lost device, which is better but still fatal.
-     * Knowing whether the dead image is still serving as a framebuffer attachment separates two
-     * very different problems: an image freed while attached, which the deferred free was meant
-     * to prevent, and an image that was never created, which is an allocation failure somewhere
-     * else entirely.
-     */
     public static String describe(Object image) {
         if (!resolve() || image == null) {
             return "image=null";
@@ -166,20 +108,65 @@ public final class VulkanModTextures {
         }
     }
 
-    /**
-     * Runs the backend's own single-texture delete for a name that is not attached.
-     *
-     * <p>Used by the bulk-delete guard so unattached names in the same batch are freed exactly
-     * as before. It re-enters the single-name guard, which sees no attachment and lets the
-     * original run; the recursion stops there because the single-name path never calls back
-     * into the bulk one.
-     */
-    /** The image a texture held before it was reallocated, so attachments can follow it. */
     private static final ThreadLocal<Object> PREVIOUS_IMAGE = new ThreadLocal<>();
 
     private static int repointed;
 
-    /** Records the image a texture is about to replace. Call before reallocation. */
+    public static Object boundTexture() {
+        if (!resolve()) {
+            return null;
+        }
+        try {
+            return boundTexture.get(null);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    public static Object imageOf(Object texture) {
+        if (!resolve()) {
+            return null;
+        }
+        try {
+            return textureImage.get(texture);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    public static int widthOf(int texture) {
+        return dimensionOf(texture, "width");
+    }
+
+    public static int heightOf(int texture) {
+        return dimensionOf(texture, "height");
+    }
+
+    private static int dimensionOf(int texture, String field) {
+        try {
+            Class<?> type = textureClass();
+            java.lang.reflect.Method lookup = type.getDeclaredMethod("getTexture", int.class);
+            lookup.setAccessible(true);
+            Object instance = lookup.invoke(null, texture);
+            if (instance == null) {
+                return 0;
+            }
+            java.lang.reflect.Field value = type.getDeclaredField(field);
+            value.setAccessible(true);
+            return value.getInt(instance);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private static Class<?> textureClass() throws ClassNotFoundException {
+        try {
+            return Class.forName("net.vulkanmod.gl.VkGlTexture");
+        } catch (ClassNotFoundException e) {
+            return Class.forName("net.vulkanmod.gl.GlTexture");
+        }
+    }
+
     public static void rememberImage(Object texture) {
         if (!resolve()) {
             return;
@@ -191,29 +178,6 @@ public final class VulkanModTextures {
         }
     }
 
-    /**
-     * Moves framebuffer attachments from a texture's old image to its new one.
-     *
-     * <p>In OpenGL, {@code glFramebufferTexture2D} attaches the texture <em>object</em>. Calling
-     * {@code glTexImage2D} on that texture replaces its storage and the framebuffer sees the new
-     * storage, because the attachment was never a snapshot.
-     *
-     * <p>The emulation stores the {@code VulkanImage} at attach time, and reallocation frees the
-     * old one:
-     *
-     * <pre>
-     * void allocateImage(int width, int height, int vkFormat) {
-     *     if (this.vulkanImage != null) {
-     *         this.vulkanImage.free();
-     *     }
-     *     this.vulkanImage = ...
-     * }
-     * </pre>
-     *
-     * <p>The framebuffer is left holding a freed image that no texture owns any more. The next
-     * render pass transitions it, and the frame is rejected with {@code VK_ERROR_DEVICE_LOST}.
-     * A mod resizing an offscreen target hits this immediately.
-     */
     public static void repointAttachments(Object texture) {
         Object previous = PREVIOUS_IMAGE.get();
         PREVIOUS_IMAGE.remove();
@@ -245,18 +209,177 @@ public final class VulkanModTextures {
         }
     }
 
-    /**
-     * Drops the {@code VkFramebuffer} handles cached for the old image view.
-     *
-     * <p>Moving the attachment field is only half the job. {@code Framebuffer} caches a real
-     * {@code VkFramebuffer} per render pass in {@code renderpassToFramebufferMap}, built from
-     * the image views that existed when it was created. Those handles still name the freed
-     * view, so the render pass keeps using it however the attachment field reads.
-     *
-     * <p>{@code cleanUp(false)} clears the map and defers destroying the handles to a frame op,
-     * without touching the images. The next {@code getFramebufferId} rebuilds against the
-     * current view.
-     */
+    public static boolean deleteFramebufferKeepingAttachments(int id) {
+        if (!resolve()) {
+            return false;
+        }
+        try {
+            Object map = framebufferMap.get(null);
+            Method remove = map.getClass().getMethod("remove", Object.class);
+            Object framebuffer = remove.invoke(map, id);
+            if (framebuffer == null) {
+                return true;
+            }
+            Object inner = innerFramebuffer.get(framebuffer);
+            if (inner != null) {
+                cleanUp.invoke(inner, false);
+            }
+            recordFree(colorAttachment.get(framebuffer), "detached by glDeleteFramebuffers " + id);
+            recordFree(depthAttachment.get(framebuffer), "detached by glDeleteFramebuffers " + id);
+            detached++;
+            if (detached == 1) {
+                LOGGER.info("Deleted a framebuffer without freeing its attachments, as OpenGL "
+                        + "does. The backend frees them, so a texture that outlives its "
+                        + "framebuffer loses its image and the next frame that binds it is "
+                        + "rejected with VK_ERROR_DEVICE_LOST.");
+            }
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not delete framebuffer {} without freeing its attachments", id, e);
+            return false;
+        }
+    }
+
+    private static int detached;
+
+    public static boolean hasColourAttachment(Object glFramebuffer) {
+        if (!resolve() || glFramebuffer == null) {
+            return false;
+        }
+        try {
+            if (colorAttachment.get(glFramebuffer) != null) {
+                return true;
+            }
+            incomplete++;
+            if (incomplete == 1) {
+                LOGGER.info("Refused to begin a render pass on a framebuffer with no colour "
+                        + "attachment. OpenGL reports such a target incomplete and draws nothing; "
+                        + "the backend hands the driver a null image view and the process dies.");
+            }
+            return false;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    private static int incomplete;
+
+    private static final java.util.Set<Object> BACKEND_FRAMEBUFFERS =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private static Field backendColour;
+    private static Field backendDepth;
+
+    public static void registerFramebuffer(Object framebuffer) {
+        if (framebuffer == null) {
+            return;
+        }
+        synchronized (BACKEND_FRAMEBUFFERS) {
+            BACKEND_FRAMEBUFFERS.add(framebuffer);
+        }
+        if (backendColour == null) {
+            try {
+                backendColour = framebuffer.getClass().getDeclaredField("colorAttachment");
+                backendColour.setAccessible(true);
+                backendDepth = framebuffer.getClass().getDeclaredField("depthAttachment");
+                backendDepth.setAccessible(true);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                backendColour = null;
+            }
+        }
+    }
+
+    public static boolean isImageAttached(Object image) {
+        if (!resolve() || image == null) {
+            return false;
+        }
+        try {
+            for (Object framebuffer : framebuffers()) {
+                if (colorAttachment.get(framebuffer) == image
+                        || depthAttachment.get(framebuffer) == image) {
+                    return true;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return false;
+        }
+        if (backendColour == null) {
+            return false;
+        }
+        java.util.List<Object> targets;
+        synchronized (BACKEND_FRAMEBUFFERS) {
+            targets = java.util.List.copyOf(BACKEND_FRAMEBUFFERS);
+        }
+        for (Object framebuffer : targets) {
+            try {
+                if (backendColour.get(framebuffer) == image || backendDepth.get(framebuffer) == image) {
+                    return true;
+                }
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private static Field renderbufferMap;
+    private static Field renderbufferImage;
+    private static int keptRenderbuffers;
+
+    public static boolean deleteRenderbufferKeepingAttached(int id) {
+        if (!resolve() || renderbufferMap == null) {
+            return false;
+        }
+        try {
+            Object map = renderbufferMap.get(null);
+            Method get = map.getClass().getMethod("get", int.class);
+            Object renderbuffer = get.invoke(map, id);
+            if (renderbuffer == null) {
+                return false;
+            }
+            Object image = renderbufferImage.get(renderbuffer);
+            if (image == null) {
+                return false;
+            }
+            boolean attached = false;
+            for (Object framebuffer : framebuffers()) {
+                if (colorAttachment.get(framebuffer) == image
+                        || depthAttachment.get(framebuffer) == image) {
+                    attached = true;
+                    break;
+                }
+            }
+            if (!attached) {
+                return false;
+            }
+            Method remove = map.getClass().getMethod("remove", int.class);
+            remove.invoke(map, id);
+            keptRenderbuffers++;
+            if (keptRenderbuffers == 1) {
+                LOGGER.info("Released a renderbuffer name without freeing its image, which a "
+                        + "framebuffer still has attached. OpenGL keeps the storage until the "
+                        + "attachment goes; the backend frees it and the next render pass "
+                        + "transitions an image the driver has released.");
+            }
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not check renderbuffer {} for attachments", id, e);
+            return false;
+        }
+    }
+
+    static void recordFree(Object image, String reason) {
+        if (image == null) {
+            return;
+        }
+        try {
+            Object handle = image.getClass().getMethod("getId").invoke(image);
+            if (handle instanceof Long id) {
+                net.actinium.gl.VkImages.recordFree(id, reason);
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        }
+    }
+
     private static void invalidateCachedHandles(Object glFramebuffer) {
         try {
             Object inner = innerFramebuffer.get(glFramebuffer);
@@ -277,6 +400,19 @@ public final class VulkanModTextures {
         }
     }
 
+    public static void noteTextureDelete(int id) {
+        if (!resolve()) {
+            return;
+        }
+        try {
+            Object texture = textureById(id);
+            if (texture != null) {
+                recordFree(textureImage.get(texture), "glDeleteTextures " + id);
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        }
+    }
+
     public static void deleteSingle(int id) {
         if (!resolve()) {
             return;
@@ -286,6 +422,18 @@ public final class VulkanModTextures {
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Could not delete texture {}", id, e);
         }
+    }
+
+    private static Class<?> renderbufferClass() {
+        for (String name : new String[] {"net.vulkanmod.gl.VkGlRenderbuffer",
+                                         "net.vulkanmod.gl.GlRenderbuffer"}) {
+            try {
+                return Class.forName(name);
+            } catch (ClassNotFoundException absent) {
+                continue;
+            }
+        }
+        return null;
     }
 
     private static Object textureById(int id) throws ReflectiveOperationException {
@@ -311,6 +459,8 @@ public final class VulkanModTextures {
             textureMap.setAccessible(true);
             textureImage = texture.getDeclaredField("vulkanImage");
             textureImage.setAccessible(true);
+            boundTexture = texture.getDeclaredField("boundTexture");
+            boundTexture.setAccessible(true);
 
             Class<?> framebuffer = Class.forName(FRAMEBUFFER);
             framebufferMap = framebuffer.getDeclaredField("map");
@@ -323,6 +473,14 @@ public final class VulkanModTextures {
             innerFramebuffer.setAccessible(true);
             cleanUp = Class.forName("net.vulkanmod.vulkan.framebuffer.Framebuffer")
                     .getMethod("cleanUp", boolean.class);
+
+            Class<?> renderbuffer = renderbufferClass();
+            if (renderbuffer != null) {
+                renderbufferMap = renderbuffer.getDeclaredField("map");
+                renderbufferMap.setAccessible(true);
+                renderbufferImage = renderbuffer.getDeclaredField("vulkanImage");
+                renderbufferImage.setAccessible(true);
+            }
 
             available = true;
         } catch (ClassNotFoundException absent) {

@@ -8,23 +8,10 @@ import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
 
-/**
- * Flat themed button, matching the settings panels.
- *
- * <p>Vanilla's button texture is a grey nine-slice that reads as a foreign object on an amber
- * panel, and its disabled state only greys the label, so an inactive Apply still looks
- * pressable. This draws a one-pixel border and a flat fill instead, and gives the disabled
- * state a visibly recessed look.
- *
- * <p>{@link Style#PRIMARY} fills with the accent and inverts its label. Exactly one button in a
- * row should use it, otherwise nothing is primary.
- */
 public class ActiniumButton extends AbstractWidget {
-
     public enum Style {
-        /** Filled accent. The action you most likely want. */
         PRIMARY,
-        /** Outlined. Everything else. */
+
         SECONDARY
     }
 
@@ -66,8 +53,6 @@ public class ActiniumButton extends AbstractWidget {
 
         guiGraphics.fill(x1, y1, x2, y2, fill);
 
-        // Drawn as four edges rather than renderOutline so the corners stay square against
-        // the panel borders, which use the same treatment.
         guiGraphics.fill(x1, y1, x2, y1 + 1, border);
         guiGraphics.fill(x1, y2 - 1, x2, y2, border);
         guiGraphics.fill(x1, y1, x1 + 1, y2, border);

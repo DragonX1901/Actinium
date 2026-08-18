@@ -10,35 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-/**
- * Binds the interop layer to VulkanMod's Vulkan objects.
- *
- * <p>Reflective, by name, for the same reason {@link net.actinium.compat.VulkanModConfig} is:
- * Actinium has to compile and load with VulkanMod absent.
- *
- * <h2>What is public and what is not</h2>
- * VulkanMod exposes most of what is needed:
- * <ul>
- *   <li>{@code Vulkan.getVkDevice()} and {@code Vulkan.getAllocator()} — the device and its
- *       VMA allocator, so Actinium's buffers and images live in the same pools as VulkanMod's
- *       rather than in a second allocator competing for the same heaps</li>
- *   <li>{@code DeviceManager.physicalDevice} — for limits and format queries</li>
- *   <li>{@code DeviceManager.getGraphicsQueue().queue()} — upload submission</li>
- *   <li>{@code Queue.getQueueFamilies().graphicsFamily} — command pool creation</li>
- * </ul>
- *
- * <p>Two are not, and are read by field:
- * <ul>
- *   <li>{@code Renderer.currentCmdBuffer} is private. There is no public accessor for the
- *       frame's command buffer, and recording without it is impossible.</li>
- *   <li>{@code RenderPass.id} is package-private. {@code getBoundRenderPass()} returns the
- *       wrapper, not the {@code VkRenderPass} handle a pipeline needs.</li>
- * </ul>
- * Both are read-only and looked up once. If a VulkanMod update renames either, this class
- * reports itself unavailable and the interop layer stays inert instead of crashing the frame.
- */
 final class VulkanModBackend implements VulkanBackend {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Backend");
 
     private static final String VULKAN = "net.vulkanmod.vulkan.Vulkan";
@@ -93,7 +65,6 @@ final class VulkanModBackend implements VulkanBackend {
         String deviceName = "VulkanMod";
     }
 
-    /** @return a bound backend, or null when VulkanMod is absent or its device is not up yet. */
     static VulkanModBackend tryCreate() {
         try {
             Builder b = new Builder();
@@ -102,8 +73,6 @@ final class VulkanModBackend implements VulkanBackend {
             b.getVkDevice = vulkan.getMethod("getVkDevice");
             b.getAllocator = vulkan.getMethod("getAllocator");
 
-            // A null device means VulkanMod has loaded but not finished initialising. Binding
-            // now would cache nulls for the rest of the session.
             if (b.getVkDevice.invoke(null) == null) {
                 return null;
             }

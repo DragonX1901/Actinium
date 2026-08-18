@@ -8,32 +8,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Reflective access to VulkanMod's configuration.
- *
- * <p>Actinium's settings screen edits VulkanMod's renderer settings, so it needs to read and
- * write {@code net.vulkanmod.config.Config}. It does that by name rather than by type on
- * purpose: Actinium compiles and runs with VulkanMod absent, and a direct reference would turn
- * an optional integration into a hard dependency and a {@code NoClassDefFoundError} on every
- * install without it.
- *
- * <p>Everything degrades to {@link #isPresent()} returning false. The screen greys the rows out
- * and says why, rather than showing switches that change nothing.
- *
- * <h2>Side effects</h2>
- * Some of VulkanMod's own option handlers do more than assign a field. Assigning the field
- * alone leaves the renderer out of sync with the config, so {@link #applySideEffects} performs
- * the same work VulkanMod does:
- * <ul>
- *   <li>{@code builderThreads} resizes the chunk build thread pool</li>
- *   <li>{@code frameQueueSize} schedules a swapchain rebuild</li>
- *   <li>{@code uniqueOpaqueLayer} rebuilds the terrain render type mapping</li>
- * </ul>
- * Chunk reloads are handled by {@link net.actinium.client.gui.OptionFlag} instead, so several
- * settings changed at once trigger one rebuild rather than one each.
- */
 public final class VulkanModConfig {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/VulkanMod");
 
     private static final String INITIALIZER = "net.vulkanmod.Initializer";
@@ -76,7 +51,6 @@ public final class VulkanModConfig {
         return present;
     }
 
-    /** True when VulkanMod exposes a setting under this name. Guards version differences. */
     public boolean has(String name) {
         return present && fields.containsKey(name);
     }
@@ -131,7 +105,6 @@ public final class VulkanModConfig {
         }
     }
 
-    /** Writes VulkanMod's config file. */
     public void save() {
         if (!present) {
             return;
@@ -144,10 +117,6 @@ public final class VulkanModConfig {
         }
     }
 
-    /**
-     * Performs the non-assignment work VulkanMod's own handlers do. Safe to call when nothing
-     * relevant changed: each branch is guarded by whether that setting exists.
-     */
     public void applySideEffects(boolean threadsChanged, boolean frameQueueChanged, boolean layerChanged) {
         if (!present) {
             return;
@@ -171,7 +140,6 @@ public final class VulkanModConfig {
         }
     }
 
-    /** Asks VulkanMod to rebuild its swapchain, for example after a vsync change. */
     public void scheduleSwapChainUpdate() {
         if (!present) {
             return;
@@ -180,7 +148,6 @@ public final class VulkanModConfig {
                 Class.forName(RENDERER).getMethod("scheduleSwapChainUpdate").invoke(null));
     }
 
-    /** Number of chunk build threads VulkanMod would pick when the setting is left on auto. */
     public int maxBuilderThreads() {
         return Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
     }

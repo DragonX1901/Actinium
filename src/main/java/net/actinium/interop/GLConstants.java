@@ -1,19 +1,9 @@
 package net.actinium.interop;
 
-/**
- * The subset of OpenGL enum values Actinium interprets.
- *
- * <p>Duplicated rather than imported from {@code org.lwjgl.opengl.GL11} on purpose: the
- * interop layer must stay loadable even when the GL classes are absent or deliberately
- * kept off the classpath (headless tests, the pure-Vulkan build), and these values are
- * frozen by the OpenGL spec.
- */
 public final class GLConstants {
-
     private GLConstants() {
     }
 
-    // Primitives
     public static final int GL_POINTS = 0x0000;
     public static final int GL_LINES = 0x0001;
     public static final int GL_LINE_LOOP = 0x0002;
@@ -23,7 +13,6 @@ public final class GLConstants {
     public static final int GL_TRIANGLE_FAN = 0x0006;
     public static final int GL_QUADS = 0x0007;
 
-    // Types
     public static final int GL_BYTE = 0x1400;
     public static final int GL_UNSIGNED_BYTE = 0x1401;
     public static final int GL_SHORT = 0x1402;
@@ -32,13 +21,11 @@ public final class GLConstants {
     public static final int GL_UNSIGNED_INT = 0x1405;
     public static final int GL_FLOAT = 0x1406;
 
-    // Capabilities
     public static final int GL_DEPTH_TEST = 0x0B71;
     public static final int GL_BLEND = 0x0BE2;
     public static final int GL_CULL_FACE = 0x0B44;
     public static final int GL_SCISSOR_TEST = 0x0C11;
 
-    // Compare / blend ops
     public static final int GL_NEVER = 0x0200;
     public static final int GL_LESS = 0x0201;
     public static final int GL_EQUAL = 0x0202;
@@ -65,7 +52,6 @@ public final class GLConstants {
     public static final int GL_MIN = 0x8007;
     public static final int GL_MAX = 0x8008;
 
-    // Faces / winding / fill
     public static final int GL_FRONT = 0x0404;
     public static final int GL_BACK = 0x0405;
     public static final int GL_FRONT_AND_BACK = 0x0408;
@@ -75,7 +61,6 @@ public final class GLConstants {
     public static final int GL_LINE = 0x1B01;
     public static final int GL_FILL = 0x1B02;
 
-    // Textures
     public static final int GL_TEXTURE_2D = 0x0DE1;
     public static final int GL_TEXTURE0 = 0x84C0;
     public static final int GL_NEAREST = 0x2600;
@@ -88,14 +73,12 @@ public final class GLConstants {
     public static final int GL_CLAMP_TO_EDGE = 0x812F;
     public static final int GL_MIRRORED_REPEAT = 0x8370;
 
-    // Buffers
     public static final int GL_ARRAY_BUFFER = 0x8892;
     public static final int GL_ELEMENT_ARRAY_BUFFER = 0x8893;
     public static final int GL_STREAM_DRAW = 0x88E0;
     public static final int GL_STATIC_DRAW = 0x88E4;
     public static final int GL_DYNAMIC_DRAW = 0x88E8;
 
-    // Framebuffers
     public static final int GL_FRAMEBUFFER = 0x8D40;
     public static final int GL_READ_FRAMEBUFFER = 0x8CA8;
     public static final int GL_DRAW_FRAMEBUFFER = 0x8CA9;

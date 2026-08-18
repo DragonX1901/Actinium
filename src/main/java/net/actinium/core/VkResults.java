@@ -8,9 +8,7 @@ import static org.lwjgl.vulkan.KHRSwapchain.VK_ERROR_OUT_OF_DATE_KHR;
 import static org.lwjgl.vulkan.KHRSwapchain.VK_SUBOPTIMAL_KHR;
 import static org.lwjgl.vulkan.VK10.*;
 
-/** Human-readable {@code VkResult} names — crash reports are useless with raw negative ints. */
 public final class VkResults {
-
     private VkResults() {
     }
 

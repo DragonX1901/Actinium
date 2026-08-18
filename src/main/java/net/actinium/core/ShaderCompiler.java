@@ -18,20 +18,7 @@ import static net.actinium.core.VkContext.check;
 import static org.lwjgl.system.MemoryUtil.NULL;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
 
-/**
- * GLSL → SPIR-V at runtime, via shaderc.
- *
- * <p>Vanilla and mod shaders are written for desktop GL and are not valid Vulkan GLSL:
- * they use default-block uniforms, {@code gl_FragColor}-era idioms, and un-located
- * inputs. {@link GlslPatcher} rewrites them before they reach shaderc; this class only
- * owns compilation, caching and module creation.
- *
- * <p>Compilation results are cached on disk keyed by SHA-256 of the patched source plus
- * the compiler version, because compiling ~200 vanilla shader permutations at startup
- * costs several seconds on a cold run and near zero on a warm one.
- */
 public final class ShaderCompiler {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Shaderc");
 
     public enum Stage {
@@ -66,10 +53,6 @@ public final class ShaderCompiler {
         }
     }
 
-    /**
-     * @param name only used for diagnostics and {@code #line} attribution
-     * @return SPIR-V words. The buffer is cached and owned by this compiler — do not free it.
-     */
     public ByteBuffer compile(String name, String source, Stage stage) {
         String key = digest(source) + ':' + stage.name();
         ByteBuffer cached = memoryCache.get(key);
@@ -97,7 +80,7 @@ public final class ShaderCompiler {
             if (spirv == null) {
                 throw new IllegalStateException("shaderc produced no SPIR-V for " + name);
             }
-            // shaderc frees its result; copy into a buffer we own.
+
             ByteBuffer copy = org.lwjgl.system.MemoryUtil.memAlloc(spirv.remaining());
             copy.put(spirv);
             copy.flip();
@@ -108,17 +91,10 @@ public final class ShaderCompiler {
         }
     }
 
-    /**
-     * ByteBuffer.slice() resets byte order to big-endian regardless of the source buffer,
-     * which turns every SPIR-V word read through getInt() into a byte-swapped value. Vulkan
-     * itself only reads the raw bytes, so this stays invisible until something inspects the
-     * words: reflection, a magic-number check, or a disassembler.
-     */
     private static ByteBuffer view(ByteBuffer source) {
         return source.slice().order(java.nio.ByteOrder.nativeOrder());
     }
 
-    /** Creates a {@code VkShaderModule}; callers own the returned handle. */
     public long createModule(VkContext ctx, ByteBuffer spirv) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkShaderModuleCreateInfo info = VkShaderModuleCreateInfo.calloc(stack)
@@ -146,7 +122,6 @@ public final class ShaderCompiler {
         Shaderc.shaderc_compiler_release(compiler);
     }
 
-    /** Carries the full source so the crash report shows what actually failed. */
     public static final class ShaderCompilationException extends RuntimeException {
         public ShaderCompilationException(String name, int status, String log, String source) {
             super("Failed to compile " + name + " (status " + status + "):\n" + log

@@ -8,20 +8,7 @@ import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkQueue;
 
-/**
- * Binds the interop layer to Actinium's own {@code VkContext}.
- *
- * <p>Not used in the shipped setup, where VulkanMod owns the device. It stays because the
- * standalone bootstrap is still exercised by {@code ./gradlew smokeTest}, and because having a
- * second implementation keeps {@link VulkanBackend} honest about what the interop layer is
- * allowed to assume.
- *
- * <p>The frame command buffer is owned by {@link FrameRenderer}, which hands it to the
- * translator at frame start rather than exposing it. This backend therefore reports null
- * outside a frame, matching VulkanMod's behaviour.
- */
 final class ActiniumBackend implements VulkanBackend {
-
     private final VkContext context;
 
     private ActiniumBackend(VkContext context) {
@@ -64,14 +51,11 @@ final class ActiniumBackend implements VulkanBackend {
 
     @Override
     public VkCommandBuffer currentCommandBuffer() {
-        // FrameRenderer pushes the frame's buffer into the translator directly; there is no
-        // separate handle to read back here.
         return null;
     }
 
     @Override
     public int currentFrameIndex() {
-        // FrameRenderer drives per-frame resets directly through the translator.
         return 0;
     }
 

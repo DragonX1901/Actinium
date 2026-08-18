@@ -39,24 +39,12 @@ import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.VK11.VK_API_VERSION_1_1;
 import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
 
-/**
- * Owns the process-wide Vulkan objects: instance, physical/logical device, queues
- * and the VMA allocator.
- *
- * <p>Lifetime is tied to the GLFW window, not to the mod: it is created from the
- * {@code Window} constructor mixin (before Minecraft would have called
- * {@code GL.createCapabilities()}) and destroyed on window close. Everything else in
- * Actinium — swapchain, pipelines, the interop bridge — is built on top of this and
- * is recreatable without tearing the device down.
- */
 public final class VkContext {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/VkContext");
 
-    /** Extensions we ask for opportunistically; absence downgrades a feature, never fails init. */
     private static final String VK_KHR_DYNAMIC_RENDERING = "VK_KHR_dynamic_rendering";
     private static final String VK_EXT_EXTERNAL_MEMORY_HOST = "VK_EXT_external_memory_host";
-    /** Required by the interop bridge to share images with a GL (Zink/ANGLE) device. */
+
     private static final String VK_KHR_EXTERNAL_MEMORY = "VK_KHR_external_memory";
     private static final String VK_KHR_EXTERNAL_SEMAPHORE = "VK_KHR_external_semaphore";
 
@@ -76,11 +64,6 @@ public final class VkContext {
     private final long debugMessenger;
 
     private VkContext(long windowHandle, boolean validation) {
-        // Each step gets its own stack frame instead of nesting inside one long-lived frame.
-        // LWJGL's thread stack defaults to 64 KB, and VkInstance's constructor alone enumerates
-        // every device extension on every GPU: on a dual-GPU laptop that is ~50 KB. Holding an
-        // outer frame across all of this overflows with "Out of stack space" before the instance
-        // even exists.
         this.instance = createInstance(validation);
         this.debugMessenger = validation ? VkDebug.install(instance) : NULL;
         this.surface = createSurface(windowHandle);
@@ -109,11 +92,6 @@ public final class VkContext {
         LOGGER.info("Device extensions enabled: {}", enabledDeviceExtensions);
     }
 
-    // ------------------------------------------------------------------
-    // Lifecycle
-    // ------------------------------------------------------------------
-
-    /** Called from the {@code Window} mixin, immediately after {@code glfwCreateWindow}. */
     public static synchronized VkContext bootstrap(long windowHandle, boolean validation) {
         if (INSTANCE != null) {
             throw new IllegalStateException("VkContext already bootstrapped");
@@ -149,10 +127,6 @@ public final class VkContext {
         INSTANCE = null;
     }
 
-    // ------------------------------------------------------------------
-    // Instance
-    // ------------------------------------------------------------------
-
     private VkInstance createInstance(boolean validation) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
         VkApplicationInfo appInfo = VkApplicationInfo.calloc(stack)
@@ -161,8 +135,7 @@ public final class VkContext {
                 .applicationVersion(VK_MAKE_VERSION(1, 21, 1))
                 .pEngineName(stack.UTF8("Actinium"))
                 .engineVersion(VK_MAKE_VERSION(1, 0, 0))
-                // 1.2 is the floor: timeline semaphores and descriptor indexing are
-                // what make the multidraw-indirect terrain path worth writing.
+
                 .apiVersion(VK_API_VERSION_1_2);
 
         PointerBuffer glfwExtensions = glfwGetRequiredInstanceExtensions();
@@ -199,8 +172,7 @@ public final class VkContext {
         PointerBuffer pInstance = stack.mallocPointer(1);
         check(vkCreateInstance(createInfo, null, pInstance), "vkCreateInstance");
         long handle = pInstance.get(0);
-        // Built outside the frame above so VkInstance's own extension enumeration starts
-        // from a nearly empty stack.
+
         return new VkInstance(handle, createInfo);
         }
     }
@@ -227,10 +199,6 @@ public final class VkContext {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Device selection
-    // ------------------------------------------------------------------
-
     private record PhysicalDeviceChoice(
             VkPhysicalDevice device, int graphicsFamily, int presentFamily,
             Set<String> extensions, String name, int score) {
@@ -251,8 +219,7 @@ public final class VkContext {
         for (int i = 0; i < count; i++) {
             VkPhysicalDevice candidate = new VkPhysicalDevice(pDevices.get(i), instance);
             PhysicalDeviceChoice evaluated;
-            // Each candidate gets a fresh frame: a machine with two GPUs enumerates two full
-            // extension lists, and those do not both fit alongside everything else.
+
             try (MemoryStack inner = MemoryStack.stackPush()) {
                 evaluated = evaluate(inner, candidate);
             }
@@ -290,8 +257,7 @@ public final class VkContext {
             if (present < 0 && pSupported.get(0) == VK_TRUE) {
                 present = i;
             }
-            // A single family doing both avoids every VK_SHARING_MODE_CONCURRENT
-            // penalty on the swapchain images; prefer it when it exists.
+
             if ((families.get(i).queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0 && pSupported.get(0) == VK_TRUE) {
                 graphics = i;
                 present = i;
@@ -309,7 +275,7 @@ public final class VkContext {
             case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU -> 1000;
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU -> 500;
             case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU -> 100;
-            default -> 10; // CPU / lavapipe: usable, never preferred.
+            default -> 10;
         };
         score += props.limits().maxImageDimension2D() / 1024;
         if (graphics == present) {
@@ -328,11 +294,6 @@ public final class VkContext {
         return new PhysicalDeviceChoice(candidate, graphics, present, enable, props.deviceNameString(), score);
     }
 
-    /**
-     * Enumerates on the heap rather than the stack. A modern driver reports 250-plus
-     * extensions at 260 bytes each, which is past LWJGL's default 64 KB thread stack on its
-     * own, before anything else in this method has allocated.
-     */
     private static Set<String> deviceExtensions(VkPhysicalDevice pd) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer pCount = stack.mallocInt(1);
@@ -368,13 +329,11 @@ public final class VkContext {
         }
 
         VkPhysicalDeviceFeatures features = VkPhysicalDeviceFeatures.calloc(stack)
-                // Terrain uses one indirect draw per render pass over a compacted
-                // command buffer; without this the whole GPU-driven path collapses
-                // back to one draw call per section.
+
                 .multiDrawIndirect(true)
                 .drawIndirectFirstInstance(true)
                 .samplerAnisotropy(true)
-                // Mods ship GLSL with dynamically indexed sampler arrays constantly.
+
                 .shaderSampledImageArrayDynamicIndexing(true);
 
         PointerBuffer ppExtensions = stack.mallocPointer(enabledDeviceExtensions.size());
@@ -412,10 +371,6 @@ public final class VkContext {
         return pAllocator.get(0);
         }
     }
-
-    // ------------------------------------------------------------------
-    // Accessors
-    // ------------------------------------------------------------------
 
     public VkInstance instance() {
         return instance;
@@ -457,7 +412,6 @@ public final class VkContext {
         return deviceName;
     }
 
-    /** True when the device can share images/semaphores with an external GL driver. */
     public boolean supportsExternalInterop() {
         return enabledDeviceExtensions.contains(VK_KHR_EXTERNAL_MEMORY)
                 && enabledDeviceExtensions.contains(VK_KHR_EXTERNAL_SEMAPHORE);

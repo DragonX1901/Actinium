@@ -19,17 +19,7 @@ import static org.lwjgl.system.MemoryUtil.memAddress;
 import static org.lwjgl.system.MemoryUtil.memCopy;
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * {@code glTexImage2D} → {@code VkImage} + staging copy + layout transitions.
- *
- * <p>Layout tracking lives on {@link ActiniumGLState.GLTexture#currentLayout}. GL has no
- * concept of image layout, so the interop layer has to infer transitions: any upload moves
- * the image to {@code TRANSFER_DST_OPTIMAL} and back to {@code SHADER_READ_ONLY_OPTIMAL}.
- * Tracking per-image rather than emitting a full pipeline barrier per upload is what keeps
- * texture-heavy mods from serialising the GPU.
- */
 final class TextureUploader {
-
     private TextureUploader() {
     }
 
@@ -41,7 +31,7 @@ final class TextureUploader {
             createImage(ctx, texture, width, height, vkFormat);
         }
         if (pixels == null) {
-            return; // allocation-only call, e.g. an FBO colour attachment
+            return;
         }
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -167,21 +157,16 @@ final class TextureUploader {
         texture.currentLayout = newLayout;
     }
 
-    /**
-     * GL internal formats are a sprawling historical mess; only the handful Minecraft and
-     * common mods actually use are mapped. Unknown formats fall back to RGBA8 rather than
-     * failing, because a slightly wrong texture beats a crash mid-world-load.
-     */
     private static int format(int glInternalFormat) {
         return switch (glInternalFormat) {
-            case 0x8058, 0x1908 -> VK_FORMAT_R8G8B8A8_UNORM;   // GL_RGBA8, GL_RGBA
-            case 0x8C43 -> VK_FORMAT_R8G8B8A8_SRGB;            // GL_SRGB8_ALPHA8
-            case 0x8051, 0x1907 -> VK_FORMAT_R8G8B8A8_UNORM;   // GL_RGB8, GL_RGB (padded)
-            case 0x8229 -> VK_FORMAT_R8_UNORM;                 // GL_R8
-            case 0x822B -> VK_FORMAT_R8G8_UNORM;               // GL_RG8
-            case 0x881A -> VK_FORMAT_R16G16B16A16_SFLOAT;      // GL_RGBA16F
-            case 0x81A5 -> VK_FORMAT_D16_UNORM;                // GL_DEPTH_COMPONENT16
-            case 0x81A6, 0x81A7 -> VK_FORMAT_D32_SFLOAT;       // GL_DEPTH_COMPONENT24/32
+            case 0x8058, 0x1908 -> VK_FORMAT_R8G8B8A8_UNORM;
+            case 0x8C43 -> VK_FORMAT_R8G8B8A8_SRGB;
+            case 0x8051, 0x1907 -> VK_FORMAT_R8G8B8A8_UNORM;
+            case 0x8229 -> VK_FORMAT_R8_UNORM;
+            case 0x822B -> VK_FORMAT_R8G8_UNORM;
+            case 0x881A -> VK_FORMAT_R16G16B16A16_SFLOAT;
+            case 0x81A5 -> VK_FORMAT_D16_UNORM;
+            case 0x81A6, 0x81A7 -> VK_FORMAT_D32_SFLOAT;
             default -> VK_FORMAT_R8G8B8A8_UNORM;
         };
     }

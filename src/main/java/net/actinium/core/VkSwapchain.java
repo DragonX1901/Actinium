@@ -19,19 +19,7 @@ import static net.actinium.core.VkContext.check;
 import static org.lwjgl.system.MemoryUtil.NULL;
 import static org.lwjgl.vulkan.VK10.*;
 
-/**
- * Swapchain plus per-image views, rebuilt on resize / {@code VK_ERROR_OUT_OF_DATE_KHR}.
- *
- * <p>Present mode policy mirrors what the vsync toggle used to mean under GL:
- * <ul>
- *   <li>vsync on  → {@code FIFO} (always available, no tearing, hard frame pacing)</li>
- *   <li>vsync off → {@code MAILBOX} when present, else {@code IMMEDIATE}, else {@code FIFO}</li>
- * </ul>
- * {@code MAILBOX} is preferred over {@code IMMEDIATE} because Minecraft's frame times are
- * spiky; mailbox drops stale frames instead of tearing through them.
- */
 public final class VkSwapchain {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Swapchain");
 
     private final VkContext ctx;
@@ -49,7 +37,6 @@ public final class VkSwapchain {
     }
 
     public void recreate(int newWidth, int newHeight, boolean newVsync) {
-        // Minimised window: extent is 0x0 and swapchain creation is illegal.
         if (newWidth == 0 || newHeight == 0) {
             return;
         }
@@ -79,8 +66,7 @@ public final class VkSwapchain {
                     .imageColorSpace(format.colorSpace())
                     .imageExtent(extent)
                     .imageArrayLayers(1)
-                    // TRANSFER_DST lets the compositor blit the final HDR/post target
-                    // straight in without an extra full-screen pass.
+
                     .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
                     .preTransform(caps.currentTransform())
                     .compositeAlpha(KHRSurface.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
@@ -140,8 +126,6 @@ public final class VkSwapchain {
         VkSurfaceFormatKHR.Buffer formats = VkSurfaceFormatKHR.malloc(pCount.get(0), stack);
         KHRSurface.vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physicalDevice(), ctx.surface(), pCount, formats);
 
-        // Vanilla writes non-linear sRGB values; picking an _SRGB swapchain format
-        // would double-apply the transfer curve and wash out every texture.
         for (VkSurfaceFormatKHR f : formats) {
             if (f.format() == VK_FORMAT_B8G8R8A8_UNORM
                     && f.colorSpace() == KHRSurface.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -153,7 +137,7 @@ public final class VkSwapchain {
 
     private int choosePresentMode(MemoryStack stack, boolean wantVsync) {
         if (wantVsync) {
-            return KHRSurface.VK_PRESENT_MODE_FIFO_KHR; // guaranteed present
+            return KHRSurface.VK_PRESENT_MODE_FIFO_KHR;
         }
         IntBuffer pCount = stack.mallocInt(1);
         KHRSurface.vkGetPhysicalDeviceSurfacePresentModesKHR(ctx.physicalDevice(), ctx.surface(), pCount, null);
@@ -190,10 +174,6 @@ public final class VkSwapchain {
         return pView.get(0);
     }
 
-    /**
-     * @return the acquired image index, or -1 when the swapchain is out of date and the
-     *         caller must skip the frame (the next {@code recreate} fixes it).
-     */
     public int acquire(long imageAvailableSemaphore, long fence) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer pIndex = stack.mallocInt(1);
@@ -209,7 +189,6 @@ public final class VkSwapchain {
         }
     }
 
-    /** @return false when the swapchain needs rebuilding. */
     public boolean present(int imageIndex, long waitSemaphore) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkPresentInfoKHR info = VkPresentInfoKHR.calloc(stack)

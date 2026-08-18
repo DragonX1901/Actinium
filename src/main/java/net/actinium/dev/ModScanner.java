@@ -17,19 +17,7 @@ import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-/**
- * Measures how much of a real mod's OpenGL usage Actinium's interop layer actually covers.
- *
- * <p>Run it against mod jars: {@code ./gradlew scanMods -Pjars=/path/create.jar}. It walks every
- * class, including classes inside nested jar-in-jar libraries, counts every static call into
- * {@code org.lwjgl.opengl}, and splits the result into calls {@link GLRedirectTransformer}
- * rewrites and calls it does not.
- *
- * <p>The uncovered list is the useful output. It says exactly which methods to implement next,
- * ordered by how often mods in the wild call them.
- */
 public final class ModScanner {
-
     private static final String GL_PACKAGE = "org/lwjgl/opengl/";
 
     private final Map<String, Integer> coveredCalls = new TreeMap<>();
@@ -76,7 +64,7 @@ public final class ModScanner {
         try {
             reader = new ClassReader(bytes);
         } catch (RuntimeException malformed) {
-            return; // multi-release or future-version class; not our problem
+            return;
         }
 
         boolean[] touched = {false};
@@ -107,11 +95,6 @@ public final class ModScanner {
         }
     }
 
-    /**
-     * Asks the real transformer whether it would rewrite this call, rather than reading its
-     * redirect list. A scanner that consults the list separately drifts out of sync with the
-     * thing it claims to measure.
-     */
     private static byte[] probeClass(String methodName, String descriptor) {
         org.objectweb.asm.ClassWriter cw = new org.objectweb.asm.ClassWriter(0);
         cw.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "probe/Probe", null, "java/lang/Object", null);

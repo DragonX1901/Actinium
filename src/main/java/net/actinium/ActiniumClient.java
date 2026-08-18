@@ -15,16 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.IntBuffer;
 import java.nio.file.Path;
 
-/**
- * Client-side lifecycle owner. Everything the {@code Window} mixin needs a home for lives here.
- *
- * <p>Deliberately not a {@code @Mod} class: this runs during window construction, which
- * happens <em>before</em> FML has finished constructing mods, so it cannot depend on the mod
- * event bus or on config being loaded from disk. It reads system properties instead, and the
- * {@code @Mod} class ({@link Actinium}) reconciles those with the real config afterwards.
- */
 public final class ActiniumClient {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium");
 
     private static VkContext context;
@@ -34,20 +25,15 @@ public final class ActiniumClient {
     private static InteropMode interopMode = InteropMode.BRIDGE;
 
     public enum InteropMode {
-        /** Java-side GL → Vulkan translation. Fast, partial coverage. */
         TRANSLATE,
-        /** Third-party GL runs on a Vulkan-backed GL driver. Complete coverage. */
+
         BRIDGE,
-        /** No interception. Third-party GL mods will not render. Diagnostic only. */
+
         OFF
     }
 
     private ActiniumClient() {
     }
-
-    // ------------------------------------------------------------------
-    // Called from WindowMixin
-    // ------------------------------------------------------------------
 
     public static void onVulkanReady(VkContext ctx, long window) {
         context = ctx;
@@ -79,21 +65,10 @@ public final class ActiniumClient {
         LOGGER.info("Actinium online — {} on {}", interopMode, ctx.deviceName());
     }
 
-    /**
-     * Vanilla and several mods call {@code GL.getCapabilities()} defensively. With no GL
-     * context there is nothing legitimate to return, and fabricating a {@code GLCapabilities}
-     * would let code branch on extensions that do not exist.
-     *
-     * <p>Returning null is the honest answer, and it is why {@code GlDebug},
-     * {@code RenderSystem#initRenderer} and {@code GlUtil} each need their own mixin to stop
-     * asking. Those mixins are the real Phase 1 work; this method exists so the failure is a
-     * clear NPE at a known call site rather than a wrong answer that corrupts rendering.
-     */
     public static GLCapabilities stubCapabilities() {
         return null;
     }
 
-    /** Replaces {@code glfwSwapBuffers}. Drives one complete Vulkan frame. */
     public static void present() {
         if (renderer == null) {
             return;
@@ -102,16 +77,18 @@ public final class ActiniumClient {
             resizeFromWindow();
         }
 
-        // Placeholder clear colour until the vanilla render paths are ported; proves the
-        // swapchain, render pass and present loop all work end to end.
-        VkCommandBuffer cmd = renderer.beginFrame(0.05f, 0.06f, 0.09f, 1.0f);
+        VkCommandBuffer cmd = renderer.beginFrame(
+                net.actinium.renderer.GlEmulation.clearRed(),
+                net.actinium.renderer.GlEmulation.clearGreen(),
+                net.actinium.renderer.GlEmulation.clearBlue(),
+                net.actinium.renderer.GlEmulation.clearAlpha());
         if (cmd == null) {
             resizeFromWindow();
             return;
         }
 
         ActiniumTranslator.get().beginFrame(cmd, renderer.renderPass(), 0);
-        // Vanilla + mod draws recorded here once the render paths are ported.
+
         ActiniumTranslator.get().endFrame();
 
         renderer.endFrameAndPresent();
@@ -127,6 +104,7 @@ public final class ActiniumClient {
     }
 
     public static void shutdown() {
+        net.actinium.renderer.GlEmulation.report();
         if (renderer != null) {
             renderer.destroy();
             renderer = null;

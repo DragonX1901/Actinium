@@ -6,9 +6,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
-/** A checkbox for boolean options. */
 public final class TickBoxControl implements Control<Boolean> {
-
     private static final int BOX = 10;
 
     @Override
@@ -22,7 +20,6 @@ public final class TickBoxControl implements Control<Boolean> {
     }
 
     private static final class Element extends ControlElement<Boolean> {
-
         Element(Option<Boolean> option, int x, int y, int width, int height) {
             super(option, x, y, width, height);
         }
