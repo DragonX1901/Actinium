@@ -83,6 +83,22 @@ public final class GLConstants {
     public static final int GL_STATIC_DRAW = 0x88E4;
     public static final int GL_DYNAMIC_DRAW = 0x88E8;
 
+    public static final int GL_MODELVIEW = 0x1700;
+    public static final int GL_PROJECTION = 0x1701;
+    public static final int GL_TEXTURE = 0x1702;
+
+    public static final int GL_FOG = 0x0B60;
+    public static final int GL_FOG_DENSITY = 0x0B62;
+    public static final int GL_FOG_START = 0x0B63;
+    public static final int GL_FOG_END = 0x0B64;
+    public static final int GL_FOG_MODE = 0x0B65;
+    public static final int GL_FOG_COLOR = 0x0B66;
+
+    public static final int GL_VERTEX_ARRAY = 0x8074;
+    public static final int GL_NORMAL_ARRAY = 0x8075;
+    public static final int GL_COLOR_ARRAY = 0x8076;
+    public static final int GL_TEXTURE_COORD_ARRAY = 0x8078;
+
     public static final int GL_FRAGMENT_SHADER = 0x8B30;
     public static final int GL_VERTEX_SHADER = 0x8B31;
     public static final int GL_COMPUTE_SHADER = 0x91B9;

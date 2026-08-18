@@ -4,8 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,8 +71,71 @@ public final class ActiniumGLState {
 
     private int generation = 0;
 
+    private final MatrixStack modelView = new MatrixStack();
+    private final MatrixStack projection = new MatrixStack();
+    private final MatrixStack[] textureMatrices = new MatrixStack[MAX_TEXTURE_UNITS];
+    private int matrixMode = GLConstants.GL_MODELVIEW;
+
+    private final float[] fogColor = new float[4];
+    private float fogStart = 0.0f;
+    private float fogEnd = 1.0f;
+    private float fogDensity = 1.0f;
+
     private ActiniumGLState() {
         Arrays.fill(boundTexture2D, 0);
+        for (int i = 0; i < textureMatrices.length; i++) {
+            textureMatrices[i] = new MatrixStack();
+        }
+    }
+
+    public static final class MatrixStack {
+        private final Deque<float[]> saved = new ArrayDeque<>();
+        private float[] current = identity();
+
+        public float[] current() {
+            return current;
+        }
+
+        public void loadIdentity() {
+            current = identity();
+        }
+
+        public void load(float[] values) {
+            System.arraycopy(values, 0, current, 0, 16);
+        }
+
+        public void multiply(float[] right) {
+            current = multiply(current, right);
+        }
+
+        public void push() {
+            saved.push(current.clone());
+        }
+
+        public void pop() {
+            float[] restored = saved.poll();
+            if (restored != null) {
+                current = restored;
+            }
+        }
+
+        public static float[] identity() {
+            return new float[]{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        }
+
+        public static float[] multiply(float[] left, float[] right) {
+            float[] out = new float[16];
+            for (int column = 0; column < 4; column++) {
+                for (int row = 0; row < 4; row++) {
+                    float sum = 0.0f;
+                    for (int i = 0; i < 4; i++) {
+                        sum += left[i * 4 + row] * right[column * 4 + i];
+                    }
+                    out[column * 4 + row] = sum;
+                }
+            }
+            return out;
+        }
     }
 
     public static final class GLTexture {
@@ -159,6 +224,7 @@ public final class ActiniumGLState {
         public final Map<String, Integer> boundAttributes = new LinkedHashMap<>();
         public final Map<String, Integer> attributeLocations = new LinkedHashMap<>();
         public final Map<String, Integer> samplerBindings = new LinkedHashMap<>();
+        public final Map<String, Integer> builtinUniforms = new LinkedHashMap<>();
         public int[] samplerUnits = new int[0];
         public boolean linked;
         public String infoLog = "";
@@ -455,6 +521,62 @@ public final class ActiniumGLState {
         }
         LOGGER.warn("{}(index={}) out of range; ignored as GL_INVALID_VALUE would be", call, index);
         return true;
+    }
+
+    public void matrixMode(int mode) {
+        matrixMode = mode;
+    }
+
+    public MatrixStack currentMatrix() {
+        return switch (matrixMode) {
+            case GLConstants.GL_PROJECTION -> projection;
+            case GLConstants.GL_TEXTURE -> textureMatrices[activeTextureUnit];
+            default -> modelView;
+        };
+    }
+
+    public MatrixStack modelViewMatrix() {
+        return modelView;
+    }
+
+    public MatrixStack projectionMatrix() {
+        return projection;
+    }
+
+    public MatrixStack textureMatrix(int unit) {
+        return textureMatrices[Math.clamp(unit, 0, MAX_TEXTURE_UNITS - 1)];
+    }
+
+    public void fog(int parameter, float value) {
+        switch (parameter) {
+            case GLConstants.GL_FOG_START -> fogStart = value;
+            case GLConstants.GL_FOG_END -> fogEnd = value;
+            case GLConstants.GL_FOG_DENSITY -> fogDensity = value;
+            default -> LOGGER.debug("Ignoring glFog parameter 0x{}", Integer.toHexString(parameter));
+        }
+    }
+
+    public void fogColor(float r, float g, float b, float a) {
+        fogColor[0] = r;
+        fogColor[1] = g;
+        fogColor[2] = b;
+        fogColor[3] = a;
+    }
+
+    public float[] fogColor() {
+        return fogColor;
+    }
+
+    public float fogStart() {
+        return fogStart;
+    }
+
+    public float fogEnd() {
+        return fogEnd;
+    }
+
+    public float fogDensity() {
+        return fogDensity;
     }
 
     public int activeTextureUnit() {

@@ -150,6 +150,9 @@ there:
 | `glAttachShader`, `glBindAttribLocation`, `glLinkProgram` | converts the attached stages together and creates the shader modules, descriptor set layout and pipeline layout |
 | `glGetShaderi`, `glGetProgrami`, `glGetShaderInfoLog`, `glGetProgramInfoLog` | answer the way OpenGL does, so a mod that checks `GL_LINK_STATUS` reads a real answer and gets the reason in its log |
 | `glGetUniformLocation`, `glGetAttribLocation` | the byte offset into the uniform block, and the attribute location the conversion settled on |
+| `glMatrixMode`, `glLoadMatrixf`, `glPushMatrix`, `glTranslatef`, `glOrtho` and the rest | drive the matrix stacks that feed a legacy shader's fixed-function matrices |
+| `glFogf`, `glFogi`, `glFogfv` | hold the fog state those shaders read through `gl_Fog` |
+| `glVertexPointer`, `glColorPointer`, `glNormalPointer`, `glTexCoordPointer`, `glEnableClientState` | bind to the attribute slots the conversion pins for `gl_Vertex` and friends |
 | `glUniform*` | writes into the program's staging block, uploaded through the per-frame uniform ring at draw time |
 | `glUseProgram`, `glDeleteProgram` | bind and destroy, waiting for the device to go idle before anything a frame may still be reading is freed |
 
@@ -169,11 +172,41 @@ independent:
 - **Bound attributes win.** A location set with `glBindAttribLocation` before the link is kept,
   and generated locations are placed around it, `mat4` inputs taking the four they occupy.
 
-What it still refuses is what has no SPIR-V equivalent: fixed-function built-ins
-(`gl_ModelViewMatrix`, `gl_Vertex` and the rest) are rejected at conversion with the name of the
-one that was found, and a program that does not have both a vertex and a fragment stage does not
-link. A refusal leaves the previously linked program intact and the reason in the program's info
-log.
+### Shaders written before GLSL 150
+
+Mod shaders are often older than the pipeline they now run on, so the converter modernises before
+it patches. Nothing here is optional: a `#version 120` shader has no SPIR-V equivalent until every
+one of these is gone.
+
+| Legacy | Becomes |
+|---|---|
+| `attribute`, `varying` | `in`, and `out` or `in` depending on the stage |
+| `gl_ModelViewMatrix`, `gl_ProjectionMatrix`, `gl_ModelViewProjectionMatrix`, their inverses and transposes, `gl_NormalMatrix` | block members the layer fills from its own matrix stacks |
+| `gl_TextureMatrix[i]` | an eight-element `mat4` array, filled per texture unit |
+| `gl_Vertex`, `gl_Color`, `gl_Normal`, `gl_MultiTexCoord0`…`7` | inputs pinned to locations 0, 1, 2 and 3+n, the slots `glVertexPointer` and friends feed |
+| `gl_FrontColor`, `gl_BackColor`, `gl_Color` in a fragment shader | one varying carrying the interpolated colour |
+| `gl_TexCoord[i]` | an eight-element `vec4` varying |
+| `gl_FragData[n]`, `gl_FragColor` | declared outputs, as many as the shader writes |
+| `gl_Fog.color`, `.start`, `.end`, `.density`, `.scale` | block members filled from `glFog*` |
+| `ftransform()` | the model-view-projection product |
+| `texture2D`, `texture2DLod`, `texture2DProj`, `shadow2D` and their 1D/3D/Cube relatives | `texture`, `textureLod`, `textureProj` |
+| `gl_VertexID`, `gl_InstanceID` | `gl_VertexIndex`, `gl_InstanceIndex`, which is what Vulkan GLSL calls them |
+
+The matrices are not just declared, they are fed. `glMatrixMode`, `glLoadIdentity`,
+`glLoadMatrixf`, `glMultMatrixf`, `glPushMatrix`, `glPopMatrix`, `glTranslatef`, `glScalef`,
+`glRotatef`, `glOrtho` and `glFrustum` drive a matrix stack per mode, `glFog*` holds the fog
+state, and every draw writes whichever of those a program actually declared into its uniform
+block. A program that never mentions them pays nothing.
+
+`glVertexPointer`, `glColorPointer`, `glNormalPointer` and `glTexCoordPointer`, with
+`glEnableClientState`, bind to the same locations the conversion pinned, so a shader that reads
+`gl_Vertex` gets the buffer that `glVertexPointer` named.
+
+Two things are still refused, with the reason in the program's info log. Fixed-function lighting,
+material and clip-plane state (`gl_LightSource`, `gl_FrontMaterial`, `gl_ClipPlane` and the rest)
+has no equivalent and no source of truth here. Storage images (`image2D` and friends) need
+`glBindImageTexture`, which this layer does not implement, so a shader that declares one is
+rejected rather than given a descriptor nothing writes to.
 
 ## Checking it
 
@@ -186,6 +219,18 @@ The format tables are pure lookup and are verified headlessly:
 That check exists because a wrong entry otherwise shows up as a mod rendering the wrong colours,
 which needs both a screen and the right mod to notice. It round-trips every internal format
 through both directions and asserts that `GL_BGRA` does not collapse into `GL_RGBA`.
+
+Every GLSL program shipped in the game's own jars is converted on each run of that command, which
+is the check that matters most: 58 programs, vertex and fragment, through include resolution,
+modernisation, patching and shaderc, asserting zero failures. It is what caught duplicate
+`#version` lines from `#moj_import`, `flat` varyings losing their location, and `gl_VertexID`.
+
+Shader packs are a different matter. Complementary Reimagined r5.8.1, taken as a corpus, goes from
+0 to 48 of its 108 programs converting; the rest need Iris, which defines the pack's options,
+resolves its conditional includes and drives the gbuffers/deferred/composite pipeline. Iris and
+Oculus are opted out of the redirect in the default config, so no pack reaches this layer in a
+running game. Converting a pack's GLSL is not the same as running the pack, and this does not run
+it.
 
 The shader conversion is checked there too, and for the same reason. `GL program conversion`
 converts a vanilla-style vertex and fragment pair together and asserts the parts that only go

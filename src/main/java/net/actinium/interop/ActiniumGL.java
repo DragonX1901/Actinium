@@ -427,6 +427,167 @@ public final class ActiniumGL {
         translator().drawElementsInstanced(mode, count, type, indices, instanceCount);
     }
 
+    public static void glMatrixMode(int mode) {
+        state().matrixMode(mode);
+    }
+
+    public static void glLoadIdentity() {
+        state().currentMatrix().loadIdentity();
+    }
+
+    public static void glPushMatrix() {
+        state().currentMatrix().push();
+    }
+
+    public static void glPopMatrix() {
+        state().currentMatrix().pop();
+    }
+
+    public static void glLoadMatrixf(FloatBuffer matrix) {
+        state().currentMatrix().load(read(matrix, 16));
+    }
+
+    public static void glLoadMatrixf(float[] matrix) {
+        state().currentMatrix().load(matrix);
+    }
+
+    public static void glMultMatrixf(FloatBuffer matrix) {
+        state().currentMatrix().multiply(read(matrix, 16));
+    }
+
+    public static void glMultMatrixf(float[] matrix) {
+        state().currentMatrix().multiply(matrix);
+    }
+
+    public static void glTranslatef(float x, float y, float z) {
+        state().currentMatrix().multiply(new float[]{
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                x, y, z, 1});
+    }
+
+    public static void glScalef(float x, float y, float z) {
+        state().currentMatrix().multiply(new float[]{
+                x, 0, 0, 0,
+                0, y, 0, 0,
+                0, 0, z, 0,
+                0, 0, 0, 1});
+    }
+
+    public static void glRotatef(float angle, float x, float y, float z) {
+        float length = (float) Math.sqrt(x * x + y * y + z * z);
+        if (length == 0.0f) {
+            return;
+        }
+        float nx = x / length;
+        float ny = y / length;
+        float nz = z / length;
+        float radians = (float) Math.toRadians(angle);
+        float c = (float) Math.cos(radians);
+        float s = (float) Math.sin(radians);
+        float ic = 1.0f - c;
+
+        state().currentMatrix().multiply(new float[]{
+                nx * nx * ic + c, ny * nx * ic + nz * s, nz * nx * ic - ny * s, 0,
+                nx * ny * ic - nz * s, ny * ny * ic + c, nz * ny * ic + nx * s, 0,
+                nx * nz * ic + ny * s, ny * nz * ic - nx * s, nz * nz * ic + c, 0,
+                0, 0, 0, 1});
+    }
+
+    public static void glOrtho(double left, double right, double bottom, double top,
+                               double near, double far) {
+        float rl = (float) (right - left);
+        float tb = (float) (top - bottom);
+        float fn = (float) (far - near);
+        state().currentMatrix().multiply(new float[]{
+                2.0f / rl, 0, 0, 0,
+                0, 2.0f / tb, 0, 0,
+                0, 0, -2.0f / fn, 0,
+                (float) -((right + left) / rl), (float) -((top + bottom) / tb),
+                (float) -((far + near) / fn), 1});
+    }
+
+    public static void glFrustum(double left, double right, double bottom, double top,
+                                 double near, double far) {
+        float rl = (float) (right - left);
+        float tb = (float) (top - bottom);
+        float fn = (float) (far - near);
+        state().currentMatrix().multiply(new float[]{
+                (float) (2.0 * near) / rl, 0, 0, 0,
+                0, (float) (2.0 * near) / tb, 0, 0,
+                (float) ((right + left) / rl), (float) ((top + bottom) / tb),
+                (float) -((far + near) / fn), -1,
+                0, 0, (float) -((2.0 * far * near) / fn), 0});
+    }
+
+    public static void glFogf(int parameter, float value) {
+        state().fog(parameter, value);
+    }
+
+    public static void glFogi(int parameter, int value) {
+        state().fog(parameter, value);
+    }
+
+    public static void glFogfv(int parameter, FloatBuffer values) {
+        if (parameter == GLConstants.GL_FOG_COLOR && values.remaining() >= 4) {
+            int base = values.position();
+            state().fogColor(values.get(base), values.get(base + 1),
+                    values.get(base + 2), values.get(base + 3));
+            return;
+        }
+        if (values.hasRemaining()) {
+            state().fog(parameter, values.get(values.position()));
+        }
+    }
+
+    public static void glVertexPointer(int size, int type, int stride, long pointer) {
+        state().vertexAttribPointer(0, size, type, false, stride, pointer);
+    }
+
+    public static void glColorPointer(int size, int type, int stride, long pointer) {
+        state().vertexAttribPointer(1, size, type, true, stride, pointer);
+    }
+
+    public static void glNormalPointer(int type, int stride, long pointer) {
+        state().vertexAttribPointer(2, 3, type, true, stride, pointer);
+    }
+
+    public static void glTexCoordPointer(int size, int type, int stride, long pointer) {
+        state().vertexAttribPointer(3 + state().activeTextureUnit(), size, type, false, stride, pointer);
+    }
+
+    public static void glEnableClientState(int cap) {
+        clientState(cap, true);
+    }
+
+    public static void glDisableClientState(int cap) {
+        clientState(cap, false);
+    }
+
+    private static void clientState(int cap, boolean enabled) {
+        int index = switch (cap) {
+            case GLConstants.GL_VERTEX_ARRAY -> 0;
+            case GLConstants.GL_COLOR_ARRAY -> 1;
+            case GLConstants.GL_NORMAL_ARRAY -> 2;
+            case GLConstants.GL_TEXTURE_COORD_ARRAY -> 3 + state().activeTextureUnit();
+            default -> -1;
+        };
+        if (index < 0) {
+            LOGGER.debug("Ignoring client state 0x{}", Integer.toHexString(cap));
+            return;
+        }
+        state().enableVertexAttribArray(index, enabled);
+    }
+
+    private static float[] read(FloatBuffer values, int count) {
+        float[] out = new float[count];
+        for (int i = 0; i < count && i < values.remaining(); i++) {
+            out[i] = values.get(values.position() + i);
+        }
+        return out;
+    }
+
     public static void glBegin(int mode) {
         reportUnsupported("glBegin");
     }

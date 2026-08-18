@@ -32,6 +32,10 @@ public final class ShaderConverter {
 
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
+    private static final String BUILTIN_PREFIX = "actinium_";
+
+    private static final int TEXTURE_MATRIX_COUNT = 8;
+
     private static ShaderCompiler compiler;
 
     private ShaderConverter() {
@@ -110,8 +114,13 @@ public final class ShaderConverter {
             program.attributeLocations.clear();
             program.attributeLocations.putAll(iface.attributes());
             program.uniformOffsets.clear();
+            program.builtinUniforms.clear();
             for (GlslPatcher.UniformMember member : iface.uniformBlock()) {
                 program.uniformOffsets.put(member.name(), member.offsetBytes());
+                if (member.name().startsWith(BUILTIN_PREFIX)) {
+                    program.builtinUniforms.put(member.name().substring(BUILTIN_PREFIX.length()),
+                            member.offsetBytes());
+                }
             }
             program.samplerBindings.clear();
             for (GlslPatcher.Sampler sampler : iface.samplers()) {
@@ -121,6 +130,7 @@ public final class ShaderConverter {
 
             if (!iface.uniformBlock().isEmpty()) {
                 program.uniformStaging = MemoryUtil.memCalloc(iface.uniformBlockSize());
+                applyDefaults(program, iface);
             }
             createLayouts(backend.device(), program, iface);
 
@@ -150,6 +160,157 @@ public final class ShaderConverter {
             release(backend.device(), program);
         }
         program.linked = false;
+    }
+
+    static void refreshBuiltins(ActiniumGLState.GLProgram program) {
+        if (program.uniformStaging == null || program.builtinUniforms.isEmpty()) {
+            return;
+        }
+        ActiniumGLState state = ActiniumGLState.get();
+        float[] modelView = state.modelViewMatrix().current();
+        float[] projection = state.projectionMatrix().current();
+
+        writeMatrix4(program, "ModelViewMatrix", modelView);
+        writeMatrix4(program, "ProjectionMatrix", projection);
+        writeMatrix4(program, "ModelViewProjectionMatrix",
+                ActiniumGLState.MatrixStack.multiply(projection, modelView));
+
+        if (program.builtinUniforms.containsKey("ModelViewMatrixInverse")
+                || program.builtinUniforms.containsKey("NormalMatrix")) {
+            float[] inverse = invert(modelView);
+            writeMatrix4(program, "ModelViewMatrixInverse", inverse);
+            writeMatrix3(program, "NormalMatrix", normalMatrix(inverse));
+        }
+        if (program.builtinUniforms.containsKey("ProjectionMatrixInverse")) {
+            writeMatrix4(program, "ProjectionMatrixInverse", invert(projection));
+        }
+        if (program.builtinUniforms.containsKey("ModelViewProjectionMatrixInverse")) {
+            writeMatrix4(program, "ModelViewProjectionMatrixInverse",
+                    invert(ActiniumGLState.MatrixStack.multiply(projection, modelView)));
+        }
+        writeMatrix4(program, "ModelViewMatrixTranspose", transpose(modelView));
+        writeMatrix4(program, "ProjectionMatrixTranspose", transpose(projection));
+
+        Integer textureMatrix = program.builtinUniforms.get("TextureMatrix");
+        if (textureMatrix != null) {
+            for (int unit = 0; unit < TEXTURE_MATRIX_COUNT; unit++) {
+                putMatrix4(program.uniformStaging, textureMatrix + unit * 64,
+                        state.textureMatrix(unit).current());
+            }
+        }
+
+        Integer fogColor = program.builtinUniforms.get("FogColor");
+        if (fogColor != null) {
+            float[] colour = state.fogColor();
+            for (int i = 0; i < 4; i++) {
+                program.uniformStaging.putFloat(fogColor + i * Float.BYTES, colour[i]);
+            }
+        }
+        writeFloat(program, "FogStart", state.fogStart());
+        writeFloat(program, "FogEnd", state.fogEnd());
+        writeFloat(program, "FogDensity", state.fogDensity());
+        writeFloat(program, "FogScale", state.fogEnd() == state.fogStart()
+                ? 0.0f : 1.0f / (state.fogEnd() - state.fogStart()));
+        program.uniformsDirty = true;
+    }
+
+    private static void writeMatrix4(ActiniumGLState.GLProgram program, String name, float[] matrix) {
+        Integer offset = program.builtinUniforms.get(name);
+        if (offset != null) {
+            putMatrix4(program.uniformStaging, offset, matrix);
+        }
+    }
+
+    private static void writeMatrix3(ActiniumGLState.GLProgram program, String name, float[] matrix) {
+        Integer offset = program.builtinUniforms.get(name);
+        if (offset == null) {
+            return;
+        }
+        for (int column = 0; column < 3; column++) {
+            for (int row = 0; row < 3; row++) {
+                program.uniformStaging.putFloat(offset + column * 16 + row * Float.BYTES,
+                        matrix[column * 3 + row]);
+            }
+        }
+    }
+
+    private static void writeFloat(ActiniumGLState.GLProgram program, String name, float value) {
+        Integer offset = program.builtinUniforms.get(name);
+        if (offset != null) {
+            program.uniformStaging.putFloat(offset, value);
+        }
+    }
+
+    private static void putMatrix4(ByteBuffer staging, int offset, float[] matrix) {
+        for (int i = 0; i < 16; i++) {
+            staging.putFloat(offset + i * Float.BYTES, matrix[i]);
+        }
+    }
+
+    private static float[] transpose(float[] m) {
+        float[] out = new float[16];
+        for (int column = 0; column < 4; column++) {
+            for (int row = 0; row < 4; row++) {
+                out[row * 4 + column] = m[column * 4 + row];
+            }
+        }
+        return out;
+    }
+
+    private static float[] normalMatrix(float[] modelViewInverse) {
+        float[] out = new float[9];
+        for (int column = 0; column < 3; column++) {
+            for (int row = 0; row < 3; row++) {
+                out[column * 3 + row] = modelViewInverse[row * 4 + column];
+            }
+        }
+        return out;
+    }
+
+    private static float[] invert(float[] m) {
+        float[] out = new float[16];
+        out[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
+                + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+        out[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
+                - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+        out[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
+                + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+        out[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
+                - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+        out[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
+                - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+        out[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
+                + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+        out[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
+                - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+        out[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
+                + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+        out[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
+                + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+        out[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
+                - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+        out[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
+                + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+        out[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
+                - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+        out[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
+                - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+        out[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
+                + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+        out[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
+                - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+        out[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
+                + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+
+        float determinant = m[0] * out[0] + m[1] * out[4] + m[2] * out[8] + m[3] * out[12];
+        if (determinant == 0.0f) {
+            return ActiniumGLState.MatrixStack.identity();
+        }
+        float scale = 1.0f / determinant;
+        for (int i = 0; i < 16; i++) {
+            out[i] *= scale;
+        }
+        return out;
     }
 
     static int uniformLocation(ActiniumGLState.GLProgram program, String name) {
@@ -243,6 +404,21 @@ public final class ShaderConverter {
             return null;
         }
         return staging;
+    }
+
+    private static void applyDefaults(ActiniumGLState.GLProgram program, GlslPatcher.ProgramInterface iface) {
+        for (GlslPatcher.UniformMember member : iface.uniformBlock()) {
+            Double value = iface.defaults().get(member.name());
+            if (value == null) {
+                continue;
+            }
+            switch (member.type()) {
+                case "int", "uint", "bool" -> program.uniformStaging.putInt(member.offsetBytes(), value.intValue());
+                case "float" -> program.uniformStaging.putFloat(member.offsetBytes(), value.floatValue());
+                default -> report(program, "ignoring the default value on " + member.type()
+                        + " " + member.name());
+            }
+        }
     }
 
     private static void createLayouts(VkDevice device, ActiniumGLState.GLProgram program,

@@ -3,6 +3,7 @@ package net.actinium.dev;
 import net.actinium.core.FrameRenderer;
 import net.actinium.core.GlslPatcher;
 import net.actinium.interop.ActiniumGL;
+import net.actinium.interop.ActiniumGLState;
 import net.actinium.interop.GLConstants;
 import net.actinium.interop.GLFormats;
 import net.actinium.core.ShaderCompiler;
@@ -17,7 +18,9 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 public final class VulkanSmokeTest {
@@ -31,6 +34,9 @@ public final class VulkanSmokeTest {
         run("GLSL patch + SPIR-V compile", VulkanSmokeTest::testShaderPipeline);
         run("GL program conversion", VulkanSmokeTest::testProgramConversion);
         run("GL shader objects", VulkanSmokeTest::testShaderObjects);
+        run("legacy GLSL conversion", VulkanSmokeTest::testLegacyConversion);
+        run("legacy matrix state", VulkanSmokeTest::testMatrixState);
+        run("shipped shader corpus", VulkanSmokeTest::testShaderCorpus);
         run("GL format tables", VulkanSmokeTest::testFormatTables);
         if (!Boolean.getBoolean("actinium.headless")) {
             run("GL bridge context", VulkanSmokeTest::testBridgeContext);
@@ -356,13 +362,21 @@ public final class VulkanSmokeTest {
             assertTrue(magic == 0x07230203, "SPIR-V magic number mismatch: 0x" + Integer.toHexString(magic));
             System.out.println("  SPIR-V magic verified on both stages");
 
+            String legacy = GlslPatcher.patch("legacy.vsh",
+                    "#version 120\nvoid main() { gl_Position = gl_ModelViewMatrix * gl_Vertex; }",
+                    ShaderCompiler.Stage.VERTEX).source();
+            assertTrue(legacy.contains("mat4 actinium_ModelViewMatrix;")
+                            && legacy.contains("layout(location = 0) in vec4 actinium_Vertex;"),
+                    "fixed-function matrices and attributes must become block members and inputs:\n" + legacy);
+            System.out.println("  fixed-function vertex shader converted");
+
             try {
-                GlslPatcher.patch("legacy.vsh",
-                        "#version 120\nvoid main() { gl_Position = gl_ModelViewMatrix * gl_Vertex; }",
-                        ShaderCompiler.Stage.VERTEX);
-                throw new AssertionError("fixed-function shader should have been rejected");
+                GlslPatcher.patch("lit.fsh",
+                        "#version 120\nvoid main() { gl_FragColor = gl_LightSource[0].diffuse; }",
+                        ShaderCompiler.Stage.FRAGMENT);
+                throw new AssertionError("fixed-function lighting should have been rejected");
             } catch (GlslPatcher.UnsupportedShaderException expected) {
-                System.out.println("  fixed-function shader rejected: " + expected.getMessage());
+                System.out.println("  fixed-function lighting rejected: " + expected.getMessage());
             }
         } finally {
             compiler.destroy();
@@ -483,6 +497,146 @@ public final class VulkanSmokeTest {
             }
         }
         throw new AssertionError("uniform " + name + " was not collected");
+    }
+
+    private static final String LEGACY_VERTEX = """
+            #version 120
+
+            attribute vec3 mc_Entity;
+            varying vec2 texcoord;
+            varying vec4 tint;
+
+            void main() {
+                gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+                texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
+                tint = gl_Color * vec4(mc_Entity, 1.0);
+                gl_FrontColor = tint;
+            }
+            """;
+
+    private static final String LEGACY_FRAGMENT = """
+            #version 120
+
+            uniform sampler2D lightmap;
+            varying vec2 texcoord;
+            varying vec4 tint;
+
+            void main() {
+                vec4 albedo = texture2D(lightmap, texcoord) * tint;
+                gl_FragData[0] = mix(albedo, gl_Fog.color, gl_Fog.density);
+            }
+            """;
+
+    private static void testLegacyConversion() {
+        Map<ShaderCompiler.Stage, String> sources = new EnumMap<>(ShaderCompiler.Stage.class);
+        sources.put(ShaderCompiler.Stage.VERTEX, LEGACY_VERTEX);
+        sources.put(ShaderCompiler.Stage.FRAGMENT, LEGACY_FRAGMENT);
+
+        GlslPatcher.ProgramInterface iface = GlslPatcher.inspect(sources, Map.of());
+        String vertex = GlslPatcher.patch("legacy.vsh", LEGACY_VERTEX, ShaderCompiler.Stage.VERTEX, iface);
+        String fragment = GlslPatcher.patch("legacy.fsh", LEGACY_FRAGMENT, ShaderCompiler.Stage.FRAGMENT, iface);
+
+        for (String uniform : new String[]{"actinium_ModelViewProjectionMatrix",
+                "actinium_TextureMatrix", "actinium_FogColor", "actinium_FogDensity"}) {
+            assertTrue(offsetOrNull(iface, uniform) != null,
+                    uniform + " must be hoisted into the block");
+        }
+        System.out.println("  " + iface.uniformBlock().size() + " uniform(s), "
+                + iface.uniformBlockSize() + " bytes, " + iface.attributes().size() + " attribute(s)");
+
+        assertTrue(vertex.contains("layout(location = 0) in vec4 actinium_Vertex;"),
+                "gl_Vertex must become a pinned attribute");
+        assertTrue(vertex.contains("layout(location = 3) in vec4 actinium_MultiTexCoord0;"),
+                "gl_MultiTexCoord0 must land on the first texture slot");
+        assertTrue(iface.attributes().get("mc_Entity") != 0
+                        && iface.attributes().get("mc_Entity") != 1
+                        && iface.attributes().get("mc_Entity") != 3,
+                "a mod attribute must not collide with a pinned legacy slot, got "
+                        + iface.attributes().get("mc_Entity"));
+        assertTrue(!vertex.contains("attribute ") && !vertex.contains("varying "),
+                "legacy storage qualifiers must be gone");
+        assertTrue(!fragment.contains("gl_FragData") && !fragment.contains("texture2D("),
+                "legacy fragment output and sampling must be rewritten");
+
+        ShaderCompiler compiler = new ShaderCompiler(true);
+        try {
+            ByteBuffer vertexSpirv = compiler.compile("legacy.vsh", vertex, ShaderCompiler.Stage.VERTEX);
+            ByteBuffer fragmentSpirv = compiler.compile("legacy.fsh", fragment, ShaderCompiler.Stage.FRAGMENT);
+            System.out.println("  legacy program: " + vertexSpirv.remaining() + " + "
+                    + fragmentSpirv.remaining() + " bytes of SPIR-V");
+            assertTrue(vertexSpirv.getInt(0) == 0x07230203 && fragmentSpirv.getInt(0) == 0x07230203,
+                    "a #version 120 program must reach SPIR-V");
+        } finally {
+            compiler.destroy();
+        }
+    }
+
+    private static void testMatrixState() {
+        ActiniumGL.glMatrixMode(GLConstants.GL_MODELVIEW);
+        ActiniumGL.glLoadIdentity();
+        ActiniumGL.glTranslatef(1.0f, 2.0f, 3.0f);
+
+        float[] translated = ActiniumGLState.get().modelViewMatrix().current();
+        assertTrue(translated[12] == 1.0f && translated[13] == 2.0f && translated[14] == 3.0f,
+                "glTranslatef must write the translation column");
+
+        ActiniumGL.glPushMatrix();
+        ActiniumGL.glScalef(2.0f, 2.0f, 2.0f);
+        float[] scaled = ActiniumGLState.get().modelViewMatrix().current();
+        assertTrue(scaled[0] == 2.0f && scaled[12] == 1.0f,
+                "a scale after a translate must keep the translation");
+        ActiniumGL.glPopMatrix();
+        assertTrue(ActiniumGLState.get().modelViewMatrix().current()[0] == 1.0f,
+                "glPopMatrix must restore the saved matrix");
+
+        ActiniumGL.glMatrixMode(GLConstants.GL_PROJECTION);
+        ActiniumGL.glLoadIdentity();
+        ActiniumGL.glOrtho(0.0, 854.0, 480.0, 0.0, -1.0, 1.0);
+        float[] ortho = ActiniumGLState.get().projectionMatrix().current();
+        assertTrue(Math.abs(ortho[0] - 2.0f / 854.0f) < 1.0e-6f,
+                "glOrtho must scale x by 2/(right-left), got " + ortho[0]);
+        assertTrue(Math.abs(ortho[5] + 2.0f / 480.0f) < 1.0e-6f,
+                "glOrtho must flip y for a top-left origin, got " + ortho[5]);
+
+        ActiniumGL.glFogf(GLConstants.GL_FOG_START, 16.0f);
+        ActiniumGL.glFogf(GLConstants.GL_FOG_END, 64.0f);
+        assertTrue(ActiniumGLState.get().fogStart() == 16.0f
+                        && ActiniumGLState.get().fogEnd() == 64.0f,
+                "fog distances must reach the state");
+
+        ActiniumGL.glMatrixMode(GLConstants.GL_MODELVIEW);
+        ActiniumGL.glLoadIdentity();
+    }
+
+    private static void testShaderCorpus() {
+        List<Path> archives = ShaderCorpus.onClasspath();
+        if (archives.isEmpty()) {
+            System.out.println("  SKIPPED: no shader-bearing jar on the classpath");
+            return;
+        }
+
+        int converted = 0;
+        int failed = 0;
+        for (ShaderCorpus.Report report : ShaderCorpus.convertAll(archives)) {
+            converted += report.converted();
+            failed += report.failures().size();
+            System.out.println("  " + report.source() + ": " + report.converted()
+                    + " of " + report.total() + " programs converted");
+            for (ShaderCorpus.Failure failure : report.failures()) {
+                System.out.println("    " + failure.program() + ": " + failure.reason());
+            }
+        }
+        assertTrue(converted > 0, "the corpus should not be empty");
+        assertTrue(failed == 0, failed + " shipped program(s) failed to convert");
+    }
+
+    private static Integer offsetOrNull(GlslPatcher.ProgramInterface iface, String name) {
+        for (GlslPatcher.UniformMember member : iface.uniformBlock()) {
+            if (member.name().equals(name)) {
+                return member.offsetBytes();
+            }
+        }
+        return null;
     }
 
     private static void testVulkan() {

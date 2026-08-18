@@ -444,6 +444,17 @@ tasks.register<JavaExec>("smokeTest") {
             (project.findProperty("actinium.headless") as String? ?: "false"))
 }
 
+tasks.register<JavaExec>("shaderCorpus") {
+    group = "verification"
+    description = "Converts every GLSL program in the given jars, or on the classpath, to SPIR-V."
+    mainClass = "net.actinium.dev.ShaderCorpus"
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    systemProperty("org.lwjgl.system.stackSize", "1024")
+    (project.findProperty("dump") as String?)?.let { systemProperty("actinium.dumpShaders", it) }
+    args = (project.findProperty("jars") as String? ?: "").split(",").filter { it.isNotBlank() }
+}
+
 tasks.register("listConfigs") {
     val names = configurations.names.sorted()
     doLast { names.forEach(::println) }

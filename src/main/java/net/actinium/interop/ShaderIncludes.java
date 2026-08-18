@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -26,17 +27,25 @@ public final class ShaderIncludes {
     private static Class<?> backend;
     private static boolean backendResolved;
 
+    public interface Resolver {
+        String read(String name);
+    }
+
     private ShaderIncludes() {
     }
 
     public static String process(String source) {
+        return process(source, ShaderIncludes::resolve);
+    }
+
+    public static String process(String source, Resolver resolver) {
         if (source == null) {
             return null;
         }
-        return process(source, 0);
+        return process(source, resolver, new HashSet<>(), 0);
     }
 
-    private static String process(String source, int depth) {
+    private static String process(String source, Resolver resolver, Set<String> imported, int depth) {
         if (!source.contains("#include") && !source.contains("#moj_import")) {
             return source;
         }
@@ -56,7 +65,11 @@ public final class ShaderIncludes {
                 continue;
             }
 
-            String included = resolve(name);
+            if (!imported.add(name)) {
+                continue;
+            }
+
+            String included = resolver.read(name);
             if (included == null) {
                 if (REPORTED.add(name)) {
                     LOGGER.warn("Could not resolve shader include '{}'. Left in place; shaderc will "
@@ -67,8 +80,23 @@ public final class ShaderIncludes {
             }
 
             out.append("// actinium: begin ").append(name).append('\n')
-                    .append(process(included, depth + 1)).append('\n')
+                    .append(process(stripVersion(included), resolver, imported, depth + 1)).append('\n')
                     .append("// actinium: end ").append(name).append('\n');
+        }
+        return out.toString();
+    }
+
+    private static String stripVersion(String source) {
+        if (!source.contains("#version")) {
+            return source;
+        }
+        StringBuilder out = new StringBuilder(source.length());
+        for (String line : source.split("\n", -1)) {
+            if (line.strip().startsWith("#version")) {
+                out.append('\n');
+                continue;
+            }
+            out.append(line).append('\n');
         }
         return out.toString();
     }

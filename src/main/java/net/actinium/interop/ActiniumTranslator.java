@@ -182,6 +182,11 @@ public final class ActiniumTranslator {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         pipelineBindsThisFrame++;
 
+        ActiniumGLState.GLProgram bound = state.program(state.boundProgram());
+        if (bound != null) {
+            ShaderConverter.refreshBuiltins(bound);
+        }
+
         long descriptorSet = DescriptorAllocator.setFor(state);
         if (descriptorSet != VK_NULL_HANDLE) {
             ActiniumGLState.GLProgram program = state.program(state.boundProgram());
