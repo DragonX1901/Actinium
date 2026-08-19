@@ -465,11 +465,12 @@ public final class ActiniumTranslator {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             int[] vp = state.viewportBox();
 
+            boolean toScreen = activeFramebuffer <= 0;
             VkViewport.Buffer viewport = VkViewport.calloc(1, stack)
                     .x(vp[0])
-                    .y(vp[1] + (float) vp[3])
+                    .y(toScreen ? vp[1] + (float) vp[3] : vp[1])
                     .width(vp[2])
-                    .height(-(float) vp[3])
+                    .height(toScreen ? -(float) vp[3] : vp[3])
                     .minDepth(0.0f)
                     .maxDepth(1.0f);
             vkCmdSetViewport(cmd, 0, viewport);

@@ -69,7 +69,7 @@ if [ "$client" = true ]; then
                 grep -q "Actinium online" "$ACTINIUM_LOG" && break
                 kill -0 $game 2>/dev/null || break
             done
-            sleep 60
+            sleep 110
             command -v import >/dev/null && import -window root "$ACTINIUM_SHOT" 2>/dev/null
             kill $game 2>/dev/null
             wait $game 2>/dev/null
@@ -91,9 +91,9 @@ if [ "$client" = true ]; then
             ok "no validation errors"
         fi
 
-        if [ -f build/vm-frame.png ]; then
-            ok "captured build/vm-frame.png from the swapchain"
-            command -v identify >/dev/null && identify build/vm-frame.png | sed 's/^/      /'
+        if [ -f run/build/vm-frame.png ]; then
+            ok "captured run/build/vm-frame.png from the swapchain"
+            command -v identify >/dev/null && identify run/build/vm-frame.png | sed 's/^/      /'
         else
             bad "the renderer presented no frame to capture"
         fi

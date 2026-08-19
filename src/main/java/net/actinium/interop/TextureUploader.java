@@ -143,6 +143,9 @@ final class TextureUploader {
         if (texture.vkImage == VK_NULL_HANDLE || pixels == null || width <= 0 || height <= 0) {
             return;
         }
+        if (x < 0 || y < 0 || x + width > texture.width || y + height > texture.height) {
+            return;
+        }
         ByteBuffer rgba = GLPixelConverter.toRGBA8(pixels, width, height, format, type);
         if (rgba == null) {
             return;
