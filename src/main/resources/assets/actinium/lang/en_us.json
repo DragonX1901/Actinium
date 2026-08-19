@@ -87,5 +87,16 @@
   "actinium.options.uniqueOpaqueLayer": "Unified Opaque Layer",
   "actinium.options.uniqueOpaqueLayer.tooltip": "Merges solid and cutout terrain into one render pass. Fewer pipeline switches per frame. Turn it off if blocks with cutout textures render wrongly.",
   "actinium.options.interopEnabled": "OpenGL Interception (experimental)",
-  "actinium.options.interopEnabled.tooltip": "Intercept OpenGL calls other mods make directly to LWJGL. This does not render anything yet: buffers and textures reach the GPU, but no draw call has ever gone through the layer. Leave it off unless you are developing Actinium."
+  "actinium.options.interopEnabled.tooltip": "Intercept OpenGL calls other mods make directly to LWJGL. This does not render anything yet: buffers and textures reach the GPU, but no draw call has ever gone through the layer. Leave it off unless you are developing Actinium.",
+  "actinium.shaderpacks.title": "Shader Packs",
+  "actinium.shaderpacks.folder": "Open Pack Folder",
+  "actinium.shaderpacks.refresh": "Refresh",
+  "actinium.shaderpacks.analyse": "Check Pack",
+  "actinium.shaderpacks.empty": "No packs in shaderpacks/",
+  "actinium.shaderpacks.pick": "Pick a pack to see how much of it converts.",
+  "actinium.shaderpacks.working": "Converting the pack's programs...",
+  "actinium.shaderpacks.unchecked": "Not checked yet.",
+  "actinium.shaderpacks.result": "%s of %s programs convert to SPIR-V",
+  "actinium.shaderpacks.note": "Actinium converts pack GLSL; it does not run the Iris pipeline, so a pack listed here does not render. Selecting one changes nothing yet.",
+  "actinium.options.shaderpacks": "Shader Packs..."
 }
