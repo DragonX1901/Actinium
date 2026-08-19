@@ -56,13 +56,14 @@ if [ "$client" = true ]; then
     if ! command -v xvfb-run >/dev/null; then
         meh "no xvfb-run; cannot boot the client without a display"
     else
-        echo "booting the client under Xvfb, up to 240s"
-        timeout 240 xvfb-run -a -s "-screen 0 1280x720x24" \
-            ./gradlew runClient -Pactinium.quickExit=true >"$log" 2>&1
+        echo "booting the client under Xvfb on Actinium's own renderer, up to 420s"
+        timeout 420 xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./gradlew runClient -Prenderer >"$log" 2>&1
         status=$?
         if grep -q "Actinium online" "$log"; then
             ok "client reached Actinium startup"
             grep -m3 -E "Actinium online|Vulkan device:|VulkanMod" "$log" | sed 's/^/      /'
+            echo "      (the layer-over-VulkanMod path is prodClient, with the built jar in run-prod/mods)"
         elif [ $status -eq 124 ]; then
             meh "client still running at the timeout; see the tail below"
             tail -5 "$log" | sed 's/^/      /'

@@ -313,7 +313,11 @@ had created at device teardown; `ActiniumTranslator.shutdown()` now frees them, 
 clean.
 
 `scripts/vm-test.sh --client` goes further and boots the game itself under `xvfb-run` on the same
-software device. That is slow, and it proves something different: that the mod loads, the renderer
-initialises and the first frames go through, on a machine with no graphics hardware at all.
+software device, with `-Prenderer` so Actinium's own Vulkan renderer owns the window. That is
+slow, and it proves something different: that the mod loads, the renderer initialises and the
+first frames go through, on a machine with no graphics hardware at all. The layer-over-VulkanMod
+path is a different run, `prodClient` with the built jar in `run-prod/mods`; a plain dev
+`runClient` with an empty `run/mods` has no renderer at all and dies compiling vanilla's
+`blit_screen`, which is the run being wrong rather than the code.
 
 What none of this judges is whether the result looks right. That still needs someone at a screen.
