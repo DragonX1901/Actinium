@@ -2,6 +2,7 @@ package net.actinium.dev;
 
 import net.actinium.core.GlslPatcher;
 import net.actinium.core.ShaderCompiler;
+import net.actinium.core.ShaderDefines;
 import net.actinium.interop.ShaderIncludes;
 
 import java.io.IOException;
@@ -116,8 +117,13 @@ public final class ShaderCorpus {
             }
         }
 
+        String packRoot = packRoot(files);
         ShaderIncludes.Resolver resolver = name -> lookup(includes, name);
-        ShaderCompiler compiler = new ShaderCompiler(false);
+        ShaderCompiler compiler = packRoot == null
+                ? new ShaderCompiler(false)
+                : new ShaderCompiler(false, ShaderDefines.standard(System.getProperty(
+                        "actinium.deviceName", "llvmpipe")),
+                        (requested, requester) -> resolveInclude(includes, packRoot, requested, requester));
         List<Failure> failures = new ArrayList<>();
         int converted = 0;
 
@@ -129,16 +135,35 @@ public final class ShaderCorpus {
                 }
                 String name = entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1);
                 Map<ShaderCompiler.Stage, String> sources = new EnumMap<>(ShaderCompiler.Stage.class);
-                sources.put(ShaderCompiler.Stage.VERTEX,
-                        ShaderIncludes.process(files.get(entry.getValue()), resolver));
-                sources.put(ShaderCompiler.Stage.FRAGMENT,
-                        ShaderIncludes.process(files.get(fragmentPath), resolver));
+                try {
+                if (packRoot == null) {
+                    sources.put(ShaderCompiler.Stage.VERTEX,
+                            ShaderIncludes.process(files.get(entry.getValue()), resolver));
+                    sources.put(ShaderCompiler.Stage.FRAGMENT,
+                            ShaderIncludes.process(files.get(fragmentPath), resolver));
+                } else {
+                    sources.put(ShaderCompiler.Stage.VERTEX, compiler.preprocess(entry.getValue(),
+                            GlslPatcher.forceModernVersion(files.get(entry.getValue())),
+                            ShaderCompiler.Stage.VERTEX));
+                    sources.put(ShaderCompiler.Stage.FRAGMENT, compiler.preprocess(fragmentPath,
+                            GlslPatcher.forceModernVersion(files.get(fragmentPath)),
+                            ShaderCompiler.Stage.FRAGMENT));
+                }
+                } catch (RuntimeException e) {
+                    failures.add(new Failure(name, firstProblem(e)));
+                    dump(name, e);
+                    continue;
+                }
+                String vertexName = packRoot == null ? name : entry.getValue();
+                String fragmentName = packRoot == null ? name : fragmentPath;
 
                 try {
                     GlslPatcher.ProgramInterface iface = GlslPatcher.inspect(sources, Map.of());
                     for (Map.Entry<ShaderCompiler.Stage, String> stage : sources.entrySet()) {
-                        String patched = GlslPatcher.patch(name, stage.getValue(), stage.getKey(), iface);
-                        compiler.compile(name, patched, stage.getKey());
+                        String label = stage.getKey() == ShaderCompiler.Stage.VERTEX
+                                ? vertexName : fragmentName;
+                        String patched = GlslPatcher.patch(label, stage.getValue(), stage.getKey(), iface);
+                        compiler.compile(label, patched, stage.getKey());
                     }
                     converted++;
                 } catch (RuntimeException e) {
@@ -150,6 +175,53 @@ public final class ShaderCorpus {
             compiler.destroy();
         }
         return new Report(archive.getFileName().toString(), converted, failures);
+    }
+
+    private static String packRoot(Map<String, String> files) {
+        for (String path : files.keySet()) {
+            if (path.startsWith("assets/") || path.contains("/assets/")) {
+                continue;
+            }
+            int index = path.indexOf("shaders/");
+            if (index >= 0) {
+                return path.substring(0, index + "shaders".length());
+            }
+        }
+        return null;
+    }
+
+    private static String resolveInclude(Map<String, String> files, String packRoot,
+                                         String requested, String requester) {
+        String path;
+        if (requested.startsWith("/")) {
+            path = packRoot + requested;
+        } else {
+            int slash = requester.lastIndexOf('/');
+            String parent = slash < 0 ? packRoot : requester.substring(0, slash);
+            path = parent + "/" + requested;
+        }
+
+        String normalised = normalise(path);
+        String content = files.get(normalised);
+        if (content != null) {
+            return content;
+        }
+        return lookup(files, requested);
+    }
+
+    private static String normalise(String path) {
+        java.util.Deque<String> parts = new java.util.ArrayDeque<>();
+        for (String part : path.split("/")) {
+            if (part.isEmpty() || part.equals(".")) {
+                continue;
+            }
+            if (part.equals("..")) {
+                parts.pollLast();
+                continue;
+            }
+            parts.addLast(part);
+        }
+        return String.join("/", parts);
     }
 
     private static String lookup(Map<String, String> files, String name) {
@@ -186,7 +258,9 @@ public final class ShaderCorpus {
                     continue;
                 }
                 try (var in = zip.getInputStream(entry)) {
-                    files.put(name, new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                    String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    files.put(name, content.indexOf('\r') < 0
+                            ? content : content.replace("\r\n", "\n").replace('\r', '\n'));
                 }
             }
         } catch (IOException e) {

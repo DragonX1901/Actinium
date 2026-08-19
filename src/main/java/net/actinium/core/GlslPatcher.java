@@ -127,6 +127,18 @@ public final class GlslPatcher {
         return new Patched(patch(name, source, stage, iface), iface.uniformBlock(), samplerNames);
     }
 
+    public static String forceModernVersion(String source) {
+        String normalised = source.indexOf('\r') < 0
+                ? source : source.replace("\r\n", "\n").replace('\r', '\n');
+        if (!normalised.endsWith("\n")) {
+            normalised = normalised + "\n";
+        }
+        if (VERSION.matcher(normalised).find()) {
+            return VERSION.matcher(normalised).replaceFirst("#version 450 core");
+        }
+        return "#version 450 core\n" + normalised;
+    }
+
     public static String modernise(String source, ShaderCompiler.Stage stage) {
         String normalised = source.indexOf('\r') < 0
                 ? source : source.replace("\r\n", "\n").replace('\r', '\n');
