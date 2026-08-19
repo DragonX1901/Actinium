@@ -81,8 +81,8 @@ final class PipelineBuilder {
                     .cullMode(key.cull() ? cullMode(key.cullFace()) : VK_CULL_MODE_NONE)
 
                     .frontFace(key.frontFace() == GLConstants.GL_CCW
-                            ? VK_FRONT_FACE_CLOCKWISE
-                            : VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                            ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+                            : VK_FRONT_FACE_CLOCKWISE)
                     .depthBiasEnable(false)
                     .lineWidth(1.0f);
 

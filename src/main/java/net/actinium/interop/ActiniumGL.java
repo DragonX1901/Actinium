@@ -62,6 +62,17 @@ public final class ActiniumGL {
         translator().uploadTexture(tex, level, internalFormat, width, height, format, type, pixels);
     }
 
+    public static void glTexSubImage2D(int target, int level, int xOffset, int yOffset,
+                                       int width, int height, int format, int type,
+                                       ByteBuffer pixels) {
+        ActiniumGLState.GLTexture tex = state().texture(state().boundTexture(state().activeTextureUnit()));
+        if (tex == null) {
+            LOGGER.warn("glTexSubImage2D with no texture bound");
+            return;
+        }
+        translator().uploadTextureRegion(tex, xOffset, yOffset, width, height, format, type, pixels);
+    }
+
     public static int glGenBuffers() {
         return state().genBuffer();
     }

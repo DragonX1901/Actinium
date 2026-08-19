@@ -146,9 +146,26 @@ public final class GlEmulation {
         ActiniumGL.glBindBuffer(target, name);
     }
 
+    private static int loggedUploads;
+
     public static void bufferData(int target, ByteBuffer data, int usage) {
         if (data != null && ready()) {
+            if (Boolean.getBoolean("actinium.frameStats") && loggedUploads < 4) {
+                loggedUploads++;
+                StringBuilder head = new StringBuilder();
+                for (int i = 0; i < Math.min(6, data.remaining() / 4); i++) {
+                    head.append(data.getFloat(data.position() + i * 4)).append(' ');
+                }
+                LOGGER.info("glBufferData target 0x{} {} bytes, first floats: {}",
+                        Integer.toHexString(target), data.remaining(), head.toString().strip());
+            }
             ActiniumGL.glBufferData(target, data, usage);
+        }
+    }
+
+    public static void bufferSubData(int target, long offset, ByteBuffer data) {
+        if (data != null && ready()) {
+            ActiniumGL.glBufferSubData(target, offset, data);
         }
     }
 
@@ -188,11 +205,22 @@ public final class GlEmulation {
         return mapping;
     }
 
+    private static int loggedUnmaps;
+
     public static void unmapBuffer(int target) {
         int name = boundBuffer(target);
         ByteBuffer mapping = MAPPINGS.get(name);
         if (mapping == null || !ready()) {
             return;
+        }
+        if (Boolean.getBoolean("actinium.frameStats") && loggedUnmaps < 3) {
+            loggedUnmaps++;
+            StringBuilder head = new StringBuilder();
+            for (int i = 0; i < Math.min(8, mapping.capacity() / 4); i++) {
+                head.append(mapping.getInt(i * 4)).append(' ');
+            }
+            LOGGER.info("unmap buffer {} target 0x{} {} bytes, first ints: {}", name,
+                    Integer.toHexString(target), mapping.capacity(), head.toString().strip());
         }
         mapping.position(0);
         ActiniumGL.glBufferSubData(target, 0L, mapping);
@@ -269,6 +297,22 @@ public final class GlEmulation {
     public static void framebufferTexture(int target, int attachment, int textureTarget,
                                           int texture, int level) {
         ActiniumGL.glFramebufferTexture2D(target, attachment, textureTarget, texture, level);
+    }
+
+    public static void texSubImage2D(int target, int level, int x, int y, int width, int height,
+                                     int format, int type, ByteBuffer pixels) {
+        if (!ready() || level != 0) {
+            return;
+        }
+        ActiniumGLState.GLTexture texture = boundTexture();
+        if (texture != null) {
+            net.actinium.interop.ActiniumGL.glTexSubImage2D(target, level, x, y, width, height,
+                    format, type, pixels);
+        }
+    }
+
+    private static ActiniumGLState.GLTexture boundTexture() {
+        return state().texture(state().boundTexture(state().activeTextureUnit()));
     }
 
     public static void viewport(int x, int y, int width, int height) {

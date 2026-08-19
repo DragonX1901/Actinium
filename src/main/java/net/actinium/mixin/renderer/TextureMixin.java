@@ -85,7 +85,10 @@ public abstract class TextureMixin {
     private static void actinium$texSubImage2D(int target, int level, int x, int y, int width,
                                                int height, int format, int type, long pixels,
                                                CallbackInfo ci) {
-        GlEmulation.unported("texture upload");
+        GlEmulation.texSubImage2D(target, level, x, y, width, height, format, type,
+                pixels == 0L ? null : org.lwjgl.system.MemoryUtil.memByteBuffer(pixels,
+                        Math.max(0, width * height
+                                * net.actinium.interop.GLPixelConverter.bytesPerPixel(format, type))));
         ci.cancel();
     }
 
@@ -95,7 +98,9 @@ public abstract class TextureMixin {
     private static void actinium$upload(int level, int x, int y, int width, int height,
                                         NativeImage.Format format, IntBuffer pixels,
                                         Consumer<IntBuffer> release, CallbackInfo ci) {
-        GlEmulation.unported("texture upload");
+        GlEmulation.texSubImage2D(0x0DE1, level, x, y, width, height, 0x1908, 0x1401,
+                pixels == null ? null : org.lwjgl.system.MemoryUtil.memByteBuffer(
+                        org.lwjgl.system.MemoryUtil.memAddress(pixels), pixels.remaining() * 4));
         release.accept(pixels);
         ci.cancel();
     }

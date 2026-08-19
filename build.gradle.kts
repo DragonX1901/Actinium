@@ -132,6 +132,19 @@ neoForge {
                 systemProperty("actinium.ignoreFramebuffers", "true")
             }
 
+            if (project.hasProperty("debugClear")) {
+                systemProperty("actinium.debugClear", "true")
+            }
+
+            if (project.hasProperty("debugTriangle")) {
+                systemProperty("actinium.debugTriangle", "true")
+            }
+
+            if (project.hasProperty("debugIndexed")) {
+                systemProperty("actinium.debugTriangle", "true")
+                systemProperty("actinium.debugIndexed", "true")
+            }
+
             // Write what the swapchain actually presented, every sixtieth frame:
             //   ./gradlew runClient -Prenderer -Pcapture=build/frame.png
             // A screenshot taken from the X server proves nothing when the window is not

@@ -107,6 +107,12 @@ public final class ActiniumClient {
             return;
         }
 
+        if (Boolean.getBoolean("actinium.debugClear")) {
+            ActiniumTranslator.get().paintDebugFrame();
+        }
+        if (Boolean.getBoolean("actinium.debugTriangle")) {
+            net.actinium.dev.DebugOverlay.draw();
+        }
         ActiniumTranslator.get().endFrame();
         renderer.endFrameAndPresent();
         frameOpen = false;

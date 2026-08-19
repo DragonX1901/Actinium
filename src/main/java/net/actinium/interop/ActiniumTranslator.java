@@ -193,6 +193,26 @@ public final class ActiniumTranslator {
         activeFramebuffer = -1;
     }
 
+    public void paintDebugFrame() {
+        VulkanBackend backend = VulkanBackend.get();
+        if (backend == null) {
+            return;
+        }
+        if (passOpen && activeFramebuffer > 0) {
+            endActivePass();
+        }
+        if (!passOpen) {
+            long pass = backend.beginDefaultPass();
+            if (pass == VK_NULL_HANDLE) {
+                return;
+            }
+            currentRenderPass = pass;
+            activeFramebuffer = 0;
+            passOpen = true;
+        }
+        clear(0x4000, 1.0f, 0.0f, 0.0f, 1.0f);
+    }
+
     public void clear(int mask, float red, float green, float blue, float alpha) {
         VkCommandBuffer cmd = resolveCommandBuffer();
         if (cmd == null || !ensurePass()) {
@@ -464,6 +484,52 @@ public final class ActiniumTranslator {
             vkCmdSetScissor(cmd, 0, scissor);
 
             vkCmdSetLineWidth(cmd, state.lineWidth());
+
+            if (FRAME_STATS && drawsToScreen + drawsToTarget == 1) {
+                LOGGER.info("first draw: viewport {}x{} at {},{} scissor {} {}x{} at {},{} "
+                                + "colourMask {} blend {} depth {} program {}",
+                        vp[2], vp[3], vp[0], vp[1],
+                        state.scissorEnabled(), sc[2], sc[3], sc[0], scissorY,
+                        Integer.toBinaryString(state.pipelineKey(4).colorMask()),
+                        state.blendEnabled(), state.depthTestEnabled(), state.boundProgram());
+
+                ActiniumGLState.GLProgram program = state.program(state.boundProgram());
+                if (program != null) {
+                    StringBuilder head = new StringBuilder();
+                    if (program.uniformStaging != null) {
+                        for (int i = 0; i < Math.min(8, program.uniformStaging.capacity() / 4); i++) {
+                            head.append(program.uniformStaging.getFloat(i * 4)).append(' ');
+                        }
+                    }
+                    LOGGER.info("  program {}: {} uniform(s) in {} bytes, {} sampler(s), first floats: {}",
+                            program.name, program.uniformOffsets.size(),
+                            program.uniformStaging == null ? 0 : program.uniformStaging.capacity(),
+                            program.samplerBindings.size(), head.toString().strip());
+                    LOGGER.info("  attributes {} samplers {} units {}", program.attributeLocations,
+                            program.samplerBindings, java.util.Arrays.toString(program.samplerUnits));
+
+                }
+
+                ActiniumGLState.GLVertexArray vao = state.vertexArray(state.boundVertexArray());
+                if (vao != null) {
+                    StringBuilder attribs = new StringBuilder();
+                    for (int i = 0; i < vao.attribs.length; i++) {
+                        ActiniumGLState.VertexAttrib attrib = vao.attribs[i];
+                        if (attrib == null || !attrib.enabled) {
+                            continue;
+                        }
+                        ActiniumGLState.GLBuffer vbo = state.buffer(attrib.buffer);
+                        attribs.append(i).append(":size").append(attrib.size)
+                                .append(" stride").append(attrib.stride)
+                                .append(" buf").append(attrib.buffer)
+                                .append('(').append(vbo == null ? -1 : vbo.size).append(") ");
+                    }
+                    ActiniumGLState.GLBuffer ebo = state.buffer(state.boundElementArrayBuffer());
+                    LOGGER.info("  vao {}: {} index buffer {} ({} bytes)", vao.name,
+                            attribs.toString().strip(), state.boundElementArrayBuffer(),
+                            ebo == null ? -1 : ebo.size);
+                }
+            }
         }
     }
 
@@ -554,6 +620,12 @@ public final class ActiniumTranslator {
     public void uploadTexture(ActiniumGLState.GLTexture texture, int level, int internalFormat,
                               int width, int height, int format, int type, ByteBuffer pixels) {
         TextureUploader.upload(VulkanBackend.require(), texture, level, internalFormat, width, height, format, type, pixels);
+    }
+
+    public void uploadTextureRegion(ActiniumGLState.GLTexture texture, int x, int y,
+                                    int width, int height, int format, int type, ByteBuffer pixels) {
+        TextureUploader.uploadRegion(VulkanBackend.require(), texture, x, y, width, height,
+                format, type, pixels);
     }
 
     public void invalidateSampler(ActiniumGLState.GLTexture texture) {
