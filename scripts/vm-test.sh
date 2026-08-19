@@ -56,20 +56,46 @@ if [ "$client" = true ]; then
     if ! command -v xvfb-run >/dev/null; then
         meh "no xvfb-run; cannot boot the client without a display"
     else
-        echo "booting the client under Xvfb on Actinium's own renderer, up to 420s"
-        timeout 420 xvfb-run -a -s "-screen 0 1280x720x24" \
-            ./gradlew runClient -Prenderer >"$log" 2>&1
-        status=$?
+        shot="build/vm-shot.png"
+        mkdir -p build
+        echo "booting the client under Xvfb on Actinium's own renderer, up to 480s"
+        export ACTINIUM_LOG="$log"
+        export ACTINIUM_SHOT="$shot"
+        timeout 480 xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
+            ./gradlew runClient -Prenderer >"$ACTINIUM_LOG" 2>&1 &
+            game=$!
+            for _ in $(seq 1 80); do
+                sleep 5
+                grep -q "Actinium online" "$ACTINIUM_LOG" && break
+                kill -0 $game 2>/dev/null || break
+            done
+            sleep 25
+            command -v import >/dev/null && import -window root "$ACTINIUM_SHOT" 2>/dev/null
+            kill $game 2>/dev/null
+            wait $game 2>/dev/null
+        '
+
         if grep -q "Actinium online" "$log"; then
             ok "client reached Actinium startup"
-            grep -m3 -E "Actinium online|Vulkan device:|VulkanMod" "$log" | sed 's/^/      /'
-            echo "      (the layer-over-VulkanMod path is prodClient, with the built jar in run-prod/mods)"
-        elif [ $status -eq 124 ]; then
-            meh "client still running at the timeout; see the tail below"
-            tail -5 "$log" | sed 's/^/      /'
+            grep -m4 -E "Actinium online|Vulkan device:|Swapchain|VulkanMod not found" "$log" \
+                | sed 's/.*\]: /      /'
         else
             bad "client did not reach Actinium startup"
             grep -m5 -E "Exception|Error|Caused by" "$log" | sed 's/^/      /'
+        fi
+
+        if grep -qE "Validation Error|VUID-" "$log"; then
+            bad "validation errors during the run"
+            grep -m3 -oE "VUID-[A-Za-z0-9-]+" "$log" | sort -u | sed 's/^/      /'
+        else
+            ok "no validation errors"
+        fi
+
+        if [ -f "$shot" ]; then
+            ok "captured $shot from the virtual display"
+            command -v identify >/dev/null && identify "$shot" | sed 's/^/      /'
+        else
+            meh "no screenshot; install imagemagick for one"
         fi
     fi
 fi

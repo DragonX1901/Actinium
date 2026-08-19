@@ -320,4 +320,20 @@ path is a different run, `prodClient` with the built jar in `run-prod/mods`; a p
 `runClient` with an empty `run/mods` has no renderer at all and dies compiling vanilla's
 `blit_screen`, which is the run being wrong rather than the code.
 
+On lavapipe that boot reaches:
+
+```
+Actinium/Window: Suppressing OpenGL context; initialising Vulkan (validation=true)
+Actinium/VkContext: Vulkan device: llvmpipe (LLVM 20.1.2, 256 bits)
+Actinium/Swapchain: Swapchain 854x480, 4 images, vsync=true
+Actinium: Actinium online — TRANSLATE on llvmpipe
+```
+
+with the resource packs loaded and the texture atlases built, and no validation error anywhere in
+the run. The script then grabs the virtual display into `build/vm-shot.png`. That frame is black,
+and it is honest that it is: in renderer mode Actinium owns the swapchain and presents it, but
+vanilla's own drawing goes through `GlStateManager`, which this layer does not render. The
+screenshot is there to make that visible rather than assumed, and to fail loudly on the day the
+first frame stops being empty by accident.
+
 What none of this judges is whether the result looks right. That still needs someone at a screen.
