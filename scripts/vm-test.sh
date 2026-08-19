@@ -62,14 +62,14 @@ if [ "$client" = true ]; then
         export ACTINIUM_LOG="$log"
         export ACTINIUM_SHOT="$shot"
         timeout 480 xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
-            ./gradlew runClient -Prenderer -Pcapture=build/vm-frame.png >"$ACTINIUM_LOG" 2>&1 &
+            ./gradlew runClient -Prenderer -PframeStats -Pcapture=build/vm-frame.png >"$ACTINIUM_LOG" 2>&1 &
             game=$!
             for _ in $(seq 1 80); do
                 sleep 5
                 grep -q "Actinium online" "$ACTINIUM_LOG" && break
                 kill -0 $game 2>/dev/null || break
             done
-            sleep 25
+            sleep 60
             command -v import >/dev/null && import -window root "$ACTINIUM_SHOT" 2>/dev/null
             kill $game 2>/dev/null
             wait $game 2>/dev/null

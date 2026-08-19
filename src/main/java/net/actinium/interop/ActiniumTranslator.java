@@ -40,6 +40,14 @@ public final class ActiniumTranslator {
     private int swapchainDraws;
     private int offscreenDraws;
 
+    private static final boolean FRAME_STATS = Boolean.getBoolean("actinium.frameStats");
+
+    private static final boolean IGNORE_FRAMEBUFFERS = Boolean.getBoolean("actinium.ignoreFramebuffers");
+
+    private int frameCounter;
+    private int drawsToScreen;
+    private int drawsToTarget;
+
     private int drawsThisFrame;
     private int pipelineBindsThisFrame;
     private int cacheMissesThisFrame;
@@ -70,6 +78,12 @@ public final class ActiniumTranslator {
 
     public void endFrame() {
         endActivePass();
+        if (FRAME_STATS && ++frameCounter % 60 == 0) {
+            LOGGER.info("frame {}: {} draw(s) to the screen, {} to render targets, {} pipeline(s) cached",
+                    frameCounter, drawsToScreen, drawsToTarget, pipelineCache.size());
+            drawsToScreen = 0;
+            drawsToTarget = 0;
+        }
         if (drawsThisFrame > 0) {
             LOGGER.debug("Frame: {} draws, {} to the swapchain, {} to framebuffer objects",
                     drawsThisFrame, swapchainDraws, offscreenDraws);
@@ -128,7 +142,7 @@ public final class ActiniumTranslator {
             return currentRenderPass != VK_NULL_HANDLE || resolveRenderPass() != VK_NULL_HANDLE;
         }
 
-        int target = ActiniumGLState.get().boundDrawFramebuffer();
+        int target = IGNORE_FRAMEBUFFERS ? 0 : ActiniumGLState.get().boundDrawFramebuffer();
         ActiniumGLState.GLFramebuffer framebuffer = target == 0
                 ? null : ActiniumGLState.get().framebuffer(target);
 
@@ -339,6 +353,11 @@ public final class ActiniumTranslator {
         }
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         pipelineBindsThisFrame++;
+        if (activeFramebuffer > 0) {
+            drawsToTarget++;
+        } else {
+            drawsToScreen++;
+        }
         if (activeFramebuffer > 0) {
             offscreenDraws++;
         } else {

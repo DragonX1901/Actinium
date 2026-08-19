@@ -119,6 +119,19 @@ neoForge {
                 systemProperty("actinium.renderer", "true")
             }
 
+            // Count where each frame's draws land, to tell an empty frame from a misdirected one:
+            //   ./gradlew runClient -Prenderer -PframeStats
+            if (project.hasProperty("frameStats")) {
+                systemProperty("actinium.frameStats", "true")
+            }
+
+            // Send every draw straight to the swapchain, to tell a bad render target from a
+            // bad blit back to the screen:
+            //   ./gradlew runClient -Prenderer -PignoreFramebuffers
+            if (project.hasProperty("ignoreFramebuffers")) {
+                systemProperty("actinium.ignoreFramebuffers", "true")
+            }
+
             // Write what the swapchain actually presented, every sixtieth frame:
             //   ./gradlew runClient -Prenderer -Pcapture=build/frame.png
             // A screenshot taken from the X server proves nothing when the window is not
