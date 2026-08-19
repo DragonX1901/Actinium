@@ -37,6 +37,20 @@ final class UniformRing {
         offset = 0;
     }
 
+    static void destroy(VulkanBackend ctx) {
+        if (buffer == VK_NULL_HANDLE) {
+            return;
+        }
+        Vma.vmaUnmapMemory(ctx.allocator(), allocation);
+        Vma.vmaDestroyBuffer(ctx.allocator(), buffer, allocation);
+        buffer = VK_NULL_HANDLE;
+        allocation = VK_NULL_HANDLE;
+        mapped = null;
+        capacity = 0;
+        offset = 0;
+        overflowReported = false;
+    }
+
     static long currentBuffer() {
         return buffer;
     }

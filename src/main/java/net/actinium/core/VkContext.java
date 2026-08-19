@@ -62,8 +62,10 @@ public final class VkContext {
     private final Set<String> enabledDeviceExtensions;
     private final String deviceName;
     private final long debugMessenger;
+    private final boolean headless;
 
     private VkContext(long windowHandle, boolean validation) {
+        this.headless = windowHandle == NULL;
         this.instance = createInstance(validation);
         this.debugMessenger = validation ? VkDebug.install(instance) : NULL;
         this.surface = createSurface(windowHandle);
@@ -119,7 +121,9 @@ public final class VkContext {
         vkDeviceWaitIdle(device);
         vmaDestroyAllocator(allocator);
         vkDestroyDevice(device, null);
-        vkDestroySurfaceKHR(instance, surface, null);
+        if (surface != NULL) {
+            vkDestroySurfaceKHR(instance, surface, null);
+        }
         if (debugMessenger != NULL) {
             VkDebug.remove(instance, debugMessenger);
         }
@@ -138,15 +142,16 @@ public final class VkContext {
 
                 .apiVersion(VK_API_VERSION_1_2);
 
-        PointerBuffer glfwExtensions = glfwGetRequiredInstanceExtensions();
-        if (glfwExtensions == null) {
-            throw new IllegalStateException(
-                    "GLFW reports no Vulkan surface extensions. The platform has no usable Vulkan loader.");
-        }
-
         List<String> wanted = new ArrayList<>();
-        for (int i = 0; i < glfwExtensions.capacity(); i++) {
-            wanted.add(glfwExtensions.getStringUTF8(i));
+        if (!headless) {
+            PointerBuffer glfwExtensions = glfwGetRequiredInstanceExtensions();
+            if (glfwExtensions == null) {
+                throw new IllegalStateException(
+                        "GLFW reports no Vulkan surface extensions. The platform has no usable Vulkan loader.");
+            }
+            for (int i = 0; i < glfwExtensions.capacity(); i++) {
+                wanted.add(glfwExtensions.getStringUTF8(i));
+            }
         }
         if (validation) {
             wanted.add("VK_EXT_debug_utils");
@@ -191,6 +196,10 @@ public final class VkContext {
     }
 
     private long createSurface(long windowHandle) {
+        if (headless) {
+            LOGGER.info("No window handle given; bringing the device up without a surface");
+            return NULL;
+        }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             LongBuffer pSurface = stack.mallocLong(1);
             check(glfwCreateWindowSurface(instance, windowHandle, null, pSurface),
@@ -228,8 +237,9 @@ public final class VkContext {
             }
         }
         if (best == null) {
-            throw new IllegalStateException(
-                    "No GPU exposes a graphics+present queue with VK_KHR_swapchain.");
+            throw new IllegalStateException(headless
+                    ? "No Vulkan device exposes a graphics queue."
+                    : "No GPU exposes a graphics+present queue with VK_KHR_swapchain.");
         }
         return best;
         }
@@ -237,7 +247,7 @@ public final class VkContext {
 
     private PhysicalDeviceChoice evaluate(MemoryStack stack, VkPhysicalDevice candidate) {
         Set<String> available = deviceExtensions(candidate);
-        if (!available.contains(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+        if (!headless && !available.contains(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
             return null;
         }
 
@@ -250,15 +260,24 @@ public final class VkContext {
         int present = -1;
         IntBuffer pSupported = stack.mallocInt(1);
         for (int i = 0; i < families.capacity(); i++) {
-            if (graphics < 0 && (families.get(i).queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0) {
+            boolean graphicsCapable = (families.get(i).queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0;
+            if (graphics < 0 && graphicsCapable) {
                 graphics = i;
             }
+            if (headless) {
+                if (graphics >= 0) {
+                    present = graphics;
+                    break;
+                }
+                continue;
+            }
+
             vkGetPhysicalDeviceSurfaceSupportKHR(candidate, i, surface, pSupported);
             if (present < 0 && pSupported.get(0) == VK_TRUE) {
                 present = i;
             }
 
-            if ((families.get(i).queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0 && pSupported.get(0) == VK_TRUE) {
+            if (graphicsCapable && pSupported.get(0) == VK_TRUE) {
                 graphics = i;
                 present = i;
                 break;
@@ -283,7 +302,9 @@ public final class VkContext {
         }
 
         Set<String> enable = new HashSet<>();
-        enable.add(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        if (!headless) {
+            enable.add(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        }
         for (String opt : List.of(VK_KHR_DYNAMIC_RENDERING, VK_EXT_EXTERNAL_MEMORY_HOST,
                 VK_KHR_EXTERNAL_MEMORY, VK_KHR_EXTERNAL_SEMAPHORE)) {
             if (available.contains(opt)) {
@@ -410,6 +431,10 @@ public final class VkContext {
 
     public String deviceName() {
         return deviceName;
+    }
+
+    public boolean isHeadless() {
+        return headless;
     }
 
     public boolean supportsExternalInterop() {

@@ -99,12 +99,18 @@ public final class ActiniumClient {
             IntBuffer width = stack.mallocInt(1);
             IntBuffer height = stack.mallocInt(1);
             GLFW.glfwGetFramebufferSize(windowHandle, width, height);
-            renderer.resize(width.get(0), height.get(0), true);
+            renderer.resize(width.get(0), height.get(0), currentVsync());
         }
+    }
+
+    private static boolean currentVsync() {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        return mc == null || mc.options == null || mc.options.enableVsync().get();
     }
 
     public static void shutdown() {
         net.actinium.renderer.GlEmulation.report();
+        ActiniumTranslator.get().shutdown();
         if (renderer != null) {
             renderer.destroy();
             renderer = null;

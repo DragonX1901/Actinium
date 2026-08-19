@@ -61,6 +61,30 @@ public final class ActiniumTranslator {
         return drawsThisFrame;
     }
 
+    public void shutdown() {
+        VulkanBackend backend = VulkanBackend.get();
+        if (backend == null) {
+            pipelineCache.clear();
+            return;
+        }
+        vkDeviceWaitIdle(backend.device());
+        for (long pipeline : pipelineCache.values()) {
+            vkDestroyPipeline(backend.device(), pipeline, null);
+        }
+        pipelineCache.clear();
+        currentCommandBuffer = null;
+        currentRenderPass = VK_NULL_HANDLE;
+        lastFrameIndex = -1;
+
+        ActiniumGLState.get().destroyObjects(backend);
+        DescriptorAllocator.destroy(backend);
+        UniformRing.destroy(backend);
+        QuadIndexBuffer.destroy(backend);
+        SamplerCache.destroy(backend);
+        TransferQueue.destroy(backend);
+        PipelineBuilder.destroy(backend);
+    }
+
     public void invalidateProgram(int program) {
         VulkanBackend backend = VulkanBackend.get();
         if (backend == null) {

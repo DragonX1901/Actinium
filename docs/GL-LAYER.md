@@ -270,4 +270,50 @@ Exactly the four that mixin is responsible for, and no others. Removing the whol
 even get that far: the profile dies during startup with
 `IllegalStateException: Unexpected format: 36013`, before the first tick.
 
+## Testing without a GPU
+
+Everything above checks the layer without drawing anything. The one question that matters most,
+does a draw through this layer put the right pixels on the target, needs a Vulkan device, and CI
+machines do not have one.
+
+They do not need one. Mesa's lavapipe is a full Vulkan 1.3 implementation that runs on the CPU,
+so the whole path can be exercised on a machine with no GPU, no display and no driver:
+
+```bash
+apt-get install -y mesa-vulkan-drivers vulkan-tools vulkan-validationlayers xvfb
+scripts/vm-test.sh
+```
+
+The script finds the toolchain, points `VK_ICD_FILENAMES` at lavapipe when there is no `/dev/dri`,
+and runs the headless checks, the shipped shader corpus and the offscreen draw. On a real GPU it
+leaves the driver alone and runs the same three.
+
+```
+gpu: none, rendering on lavapipe (/usr/share/vulkan/icd.d/lvp_icd.json)
+PASS  headless checks
+PASS  shipped shader corpus
+PASS  offscreen draw
+      centre pixel: 64, 128, 191, 255
+```
+
+`./gradlew renderTest` is the draw. It brings the device up without a surface, builds a 64x64
+colour target, then goes through the GL entry points a mod would call: compile and link a program,
+fill a vertex buffer, upload a texture, set a `vec4` uniform and a sampler unit, and
+`glDrawArrays`. It reads the image back and checks two pixels. The centre must be the uniform
+colour times the white texture, `64, 128, 191, 255`, which no part of the pipeline produces by
+accident: a broken uniform block gives black, a broken sampler binding gives black or garbage, a
+broken vertex layout gives the clear colour. The corner must still be the clear colour, which
+catches a triangle that covered everything.
+
+Validation runs with it. `VK_LAYER_KHRONOS_validation`, when installed, is enabled by default and
+its output goes through the same logger, so a wrong descriptor type or a missing barrier fails the
+run rather than being some driver's silent tolerance. It is what caught the layer leaking its
+descriptor pool, uniform ring, quad index buffer, samplers, transfer pool and every GL object it
+had created at device teardown; `ActiniumTranslator.shutdown()` now frees them, and the run is
+clean.
+
+`scripts/vm-test.sh --client` goes further and boots the game itself under `xvfb-run` on the same
+software device. That is slow, and it proves something different: that the mod loads, the renderer
+initialises and the first frames go through, on a machine with no graphics hardware at all.
+
 What none of this judges is whether the result looks right. That still needs someone at a screen.

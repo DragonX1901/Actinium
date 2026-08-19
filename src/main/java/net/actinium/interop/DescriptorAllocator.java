@@ -31,6 +31,13 @@ final class DescriptorAllocator {
         }
     }
 
+    static void destroy(VulkanBackend ctx) {
+        if (pool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(ctx.device(), pool, null);
+            pool = VK_NULL_HANDLE;
+        }
+    }
+
     static long setFor(ActiniumGLState state) {
         ActiniumGLState.GLProgram program = state.program(state.boundProgram());
         if (program == null || program.descriptorSetLayout == VK_NULL_HANDLE) {

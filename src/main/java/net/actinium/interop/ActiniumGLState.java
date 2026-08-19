@@ -523,6 +523,53 @@ public final class ActiniumGLState {
         return true;
     }
 
+    public void destroyObjects(net.actinium.backend.VulkanBackend backend) {
+        for (GLProgram program : new ArrayList<>(programs.values())) {
+            ShaderConverter.destroy(program);
+        }
+        programs.clear();
+        shaders.clear();
+
+        for (GLTexture texture : textures.values()) {
+            if (texture.vkImageView != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyImageView(backend.device(), texture.vkImageView, null);
+            }
+            if (texture.vkImage != 0L) {
+                org.lwjgl.util.vma.Vma.vmaDestroyImage(backend.allocator(), texture.vkImage, texture.allocation);
+            }
+        }
+        textures.clear();
+
+        for (GLBuffer buffer : buffers.values()) {
+            if (buffer.vkBuffer != 0L) {
+                org.lwjgl.util.vma.Vma.vmaDestroyBuffer(backend.allocator(), buffer.vkBuffer, buffer.allocation);
+            }
+            buffer.mapped = null;
+        }
+        buffers.clear();
+        vertexArrays.clear();
+
+        for (GLFramebuffer framebuffer : framebuffers.values()) {
+            if (framebuffer.vkFramebuffer != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyFramebuffer(backend.device(), framebuffer.vkFramebuffer, null);
+            }
+            if (framebuffer.vkRenderPass != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyRenderPass(backend.device(), framebuffer.vkRenderPass, null);
+            }
+        }
+        framebuffers.clear();
+
+        Arrays.fill(boundTexture2D, 0);
+        boundArrayBuffer = 0;
+        boundElementArrayBuffer = 0;
+        boundUniformBuffer = 0;
+        boundVertexArray = 0;
+        boundProgram = 0;
+        boundDrawFramebuffer = 0;
+        boundReadFramebuffer = 0;
+        generation++;
+    }
+
     public void matrixMode(int mode) {
         matrixMode = mode;
     }

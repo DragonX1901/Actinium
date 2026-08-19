@@ -455,6 +455,21 @@ tasks.register<JavaExec>("shaderCorpus") {
     args = (project.findProperty("jars") as String? ?: "").split(",").filter { it.isNotBlank() }
 }
 
+tasks.register<JavaExec>("renderTest") {
+    group = "verification"
+    description = "Draws through the GL layer on an offscreen Vulkan device and checks the pixels."
+    mainClass = "net.actinium.dev.HeadlessRenderTest"
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    systemProperty("org.lwjgl.system.stackSize", "1024")
+    systemProperty("actinium.validation",
+            (project.findProperty("validation") as String? ?: "true"))
+    val softwareIcd = file("/usr/share/vulkan/icd.d/lvp_icd.json")
+    if (!file("/dev/dri").exists() && softwareIcd.exists()) {
+        environment("VK_ICD_FILENAMES", softwareIcd.absolutePath)
+    }
+}
+
 tasks.register("listConfigs") {
     val names = configurations.names.sorted()
     doLast { names.forEach(::println) }

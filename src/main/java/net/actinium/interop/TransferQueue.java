@@ -26,6 +26,21 @@ final class TransferQueue {
     private TransferQueue() {
     }
 
+    static void destroy(VulkanBackend ctx) {
+        vkDeviceWaitIdle(ctx.device());
+        reclaim(ctx);
+        for (Pending pending : IN_FLIGHT) {
+            Vma.vmaDestroyBuffer(ctx.allocator(), pending.buffer(), pending.allocation());
+            vkFreeCommandBuffers(ctx.device(), pool, pending.cmd());
+            vkDestroyFence(ctx.device(), pending.fence(), null);
+        }
+        IN_FLIGHT.clear();
+        if (pool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(ctx.device(), pool, null);
+            pool = VK_NULL_HANDLE;
+        }
+    }
+
     static VkCommandBuffer begin(VulkanBackend ctx) {
         reclaim(ctx);
         try (MemoryStack stack = MemoryStack.stackPush()) {
