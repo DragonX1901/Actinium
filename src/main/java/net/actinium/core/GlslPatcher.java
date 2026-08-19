@@ -27,6 +27,10 @@ public final class GlslPatcher {
     private static final Pattern LEGACY_TEXTURE = Pattern.compile("\\btexture(2D|3D|Cube)\\s*\\(");
     private static final Pattern LEGACY_TEXTURE_LOD =
             Pattern.compile("\\b(?:texture(?:1D|2D|3D|Cube|2DArray)|shadow2D)Lod\\s*\\(");
+    private static final Pattern LEGACY_TEXEL_FETCH =
+            Pattern.compile("\\btexelFetch(?:1D|2D|3D|2DRect|Buffer)\\s*\\(");
+    private static final Pattern LEGACY_SHADOW_PROJ =
+            Pattern.compile("\\bshadow(?:1D|2D)Proj\\s*\\(");
     private static final Pattern LEGACY_TEXTURE_PROJ =
             Pattern.compile("\\btexture(?:1D|2D|3D)Proj\\s*\\(");
     private static final Pattern LEGACY_TEXTURE_GRAD =
@@ -51,12 +55,23 @@ public final class GlslPatcher {
             "\\bgl_(LightSource|FrontMaterial|BackMaterial|LightModel|Fog(?!\\s*\\.)|ClipPlane|PointParameters"
                     + "|TextureEnvColor|EyePlane[STRQ]|ObjectPlane[STRQ]|FragDepthEXT)\\b");
 
-    private static final Pattern LEGACY_ATTRIBUTE = Pattern.compile("^([ \\t]*)attribute\\b", Pattern.MULTILINE);
-    private static final Pattern LEGACY_VARYING = Pattern.compile("^([ \\t]*)varying\\b", Pattern.MULTILINE);
+    private static final String INTERPOLATION =
+            "(?:(?:flat|smooth|noperspective|centroid|sample|invariant|precise)[ \\t]+)*";
+    private static final Pattern LEGACY_ATTRIBUTE =
+            Pattern.compile("^([ \\t]*" + INTERPOLATION + ")attribute\\b", Pattern.MULTILINE);
+    private static final Pattern LEGACY_VARYING =
+            Pattern.compile("^([ \\t]*" + INTERPOLATION + ")varying\\b", Pattern.MULTILINE);
     private static final Pattern FRAG_DATA = Pattern.compile("\\bgl_FragData\\s*\\[\\s*(\\d+)\\s*]");
     private static final Pattern TEX_COORD = Pattern.compile("\\bgl_TexCoord\\b");
 
     private static final String PREFIX = "actinium_";
+
+    private static final List<String> RESERVED_LATER = List.of(
+            "sampler", "filter", "common", "partition", "active", "resource", "superp",
+            "input", "output");
+
+    private static final Pattern SHADOWED_TEXTURE =
+            Pattern.compile("\\b(?:uniform\\s+\\w+|in|out|attribute|varying)\\s+texture\\s*[;,=\\[]");
 
     private static final Map<String, String> LEGACY_MATRICES = Map.ofEntries(
             Map.entry("gl_ModelViewMatrix", "mat4"),
@@ -142,7 +157,9 @@ public final class GlslPatcher {
     public static String modernise(String source, ShaderCompiler.Stage stage) {
         String normalised = source.indexOf('\r') < 0
                 ? source : source.replace("\r\n", "\n").replace('\r', '\n');
+        normalised = statementsPerLine(normalised);
         normalised = splitDeclarators(normalised);
+        normalised = renameReserved(normalised);
         if (!isLegacy(normalised)) {
             return normalised;
         }
@@ -235,6 +252,64 @@ public final class GlslPatcher {
         }
 
         return declarations.isEmpty() ? out : insertAfterVersion(out, declarations.toString());
+    }
+
+    private static String statementsPerLine(String source) {
+        StringBuilder out = new StringBuilder(source.length() + 256);
+        int depth = 0;
+        boolean directive = false;
+
+        for (int i = 0; i < source.length(); i++) {
+            char c = source.charAt(i);
+            if (c == '\n') {
+                directive = false;
+                out.append(c);
+                continue;
+            }
+            if (c == '#' && lineIsBlank(out)) {
+                directive = true;
+            }
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth = Math.max(0, depth - 1);
+            }
+
+            out.append(c);
+
+            if (!directive && depth == 0 && (c == ';' || c == '{' || c == '}')
+                    && i + 1 < source.length() && source.charAt(i + 1) != '\n') {
+                out.append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    private static boolean lineIsBlank(StringBuilder out) {
+        for (int i = out.length() - 1; i >= 0; i--) {
+            char c = out.charAt(i);
+            if (c == '\n') {
+                return true;
+            }
+            if (!Character.isWhitespace(c)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String renameReserved(String source) {
+        String out = source;
+        for (String word : RESERVED_LATER) {
+            if (usesIdentifier(out, word)) {
+                out = replaceIdentifier(out, word, PREFIX + word);
+            }
+        }
+        if (SHADOWED_TEXTURE.matcher(out).find()) {
+            out = Pattern.compile("\\btexture\\b(?!\\s*\\()").matcher(out)
+                    .replaceAll(PREFIX + "texture");
+        }
+        return out;
     }
 
     private static String splitDeclarators(String source) {
@@ -380,6 +455,8 @@ public final class GlslPatcher {
             out = insertAfterVersion(out, uniformBlockSource(iface));
         }
         out = assignLocations(out, stage, iface);
+        out = LEGACY_TEXEL_FETCH.matcher(out).replaceAll("texelFetch(");
+        out = LEGACY_SHADOW_PROJ.matcher(out).replaceAll("textureProj(");
         out = LEGACY_TEXTURE_LOD.matcher(out).replaceAll("textureLod(");
         out = LEGACY_TEXTURE_PROJ.matcher(out).replaceAll("textureProj(");
         out = LEGACY_TEXTURE_GRAD.matcher(out).replaceAll("textureGrad(");
@@ -399,21 +476,38 @@ public final class GlslPatcher {
     }
 
     private static String replaceUniforms(String source, ProgramInterface iface) {
+        java.util.Set<String> members = new java.util.HashSet<>();
+        for (UniformMember member : iface.uniformBlock()) {
+            members.add(member.name());
+        }
+        int spare = FIRST_SAMPLER_BINDING + iface.samplers().size();
+
         StringBuilder out = new StringBuilder(source.length());
         Matcher m = UNIFORM.matcher(source);
         int last = 0;
         while (m.find()) {
             out.append(source, last, m.start());
-            Sampler sampler = iface.sampler(m.group("name"));
+            String name = m.group("name");
+            String type = m.group("type");
+            Sampler sampler = iface.sampler(name);
+
             if (sampler != null) {
-                out.append("layout(set = 0, binding = ").append(sampler.binding()).append(") uniform ")
-                        .append(sampler.type()).append(' ').append(sampler.name())
-                        .append(sampler.count() > 1 ? "[" + sampler.count() + "]" : "").append(';');
+                out.append(samplerDeclaration(sampler.type(), sampler.name(),
+                        sampler.binding(), sampler.count()));
+            } else if (SAMPLER_TYPE.matcher(type).matches()) {
+                out.append(samplerDeclaration(type, name, spare++, arrayCount(m.group("array"))));
+            } else if (!members.contains(name)) {
+                out.append(source, m.start(), m.end());
             }
             last = m.end();
         }
         out.append(source.substring(last));
         return out.toString();
+    }
+
+    private static String samplerDeclaration(String type, String name, int binding, int count) {
+        return "layout(set = 0, binding = " + binding + ") uniform "
+                + type + ' ' + name + (count > 1 ? "[" + count + "]" : "") + ';';
     }
 
     private static String uniformBlockSource(ProgramInterface iface) {
