@@ -80,9 +80,7 @@ final class PipelineBuilder {
                     .polygonMode(polygonMode(key.polygonMode()))
                     .cullMode(key.cull() ? cullMode(key.cullFace()) : VK_CULL_MODE_NONE)
 
-                    .frontFace(key.frontFace() == GLConstants.GL_CCW
-                            ? VK_FRONT_FACE_COUNTER_CLOCKWISE
-                            : VK_FRONT_FACE_CLOCKWISE)
+                    .frontFace(frontFace(key))
                     .depthBiasEnable(false)
                     .lineWidth(1.0f);
 
@@ -341,6 +339,15 @@ final class PipelineBuilder {
             case GLConstants.GL_MAX -> VK_BLEND_OP_MAX;
             default -> VK_BLEND_OP_ADD;
         };
+    }
+
+    private static int frontFace(ActiniumGLState.PipelineKey key) {
+        boolean flipped = key.framebuffer() == 0;
+        boolean counterClockwise = key.frontFace() == GLConstants.GL_CCW;
+        if (!flipped) {
+            counterClockwise = !counterClockwise;
+        }
+        return counterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     }
 
     private static int cullMode(int glFace) {
