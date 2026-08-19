@@ -27,6 +27,31 @@ public final class ShaderDefines {
             defines.put(hardware.getKey(), hardware.getValue());
         }
 
+        defines.put("MC_RENDER_STAGE_NONE", "0");
+        defines.put("MC_RENDER_STAGE_SKY", "1");
+        defines.put("MC_RENDER_STAGE_SUNSET", "2");
+        defines.put("MC_RENDER_STAGE_CUSTOM_SKY", "3");
+        defines.put("MC_RENDER_STAGE_SUN", "4");
+        defines.put("MC_RENDER_STAGE_MOON", "5");
+        defines.put("MC_RENDER_STAGE_STARS", "6");
+        defines.put("MC_RENDER_STAGE_VOID", "7");
+        defines.put("MC_RENDER_STAGE_TERRAIN_SOLID", "8");
+        defines.put("MC_RENDER_STAGE_TERRAIN_CUTOUT_MIPPED", "9");
+        defines.put("MC_RENDER_STAGE_TERRAIN_CUTOUT", "10");
+        defines.put("MC_RENDER_STAGE_ENTITIES", "11");
+        defines.put("MC_RENDER_STAGE_BLOCK_ENTITIES", "12");
+        defines.put("MC_RENDER_STAGE_DESTROY", "13");
+        defines.put("MC_RENDER_STAGE_OUTLINE", "14");
+        defines.put("MC_RENDER_STAGE_DEBUG", "15");
+        defines.put("MC_RENDER_STAGE_HAND_SOLID", "16");
+        defines.put("MC_RENDER_STAGE_TERRAIN_TRANSLUCENT", "17");
+        defines.put("MC_RENDER_STAGE_TRIPWIRE", "18");
+        defines.put("MC_RENDER_STAGE_PARTICLES", "19");
+        defines.put("MC_RENDER_STAGE_CLOUDS", "20");
+        defines.put("MC_RENDER_STAGE_RAIN_SNOW", "21");
+        defines.put("MC_RENDER_STAGE_WORLD_BORDER", "22");
+        defines.put("MC_RENDER_STAGE_HAND_TRANSLUCENT", "23");
+
         defines.put("IS_IRIS", "1");
         defines.put("IRIS_TAG_SUPPORT", "2");
         defines.put("IRIS_HAS_TRANSLUCENCY_SORTING", "1");

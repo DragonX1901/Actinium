@@ -235,6 +235,12 @@ public final class GlslPatcher {
             }
         }
 
+        if (usesIdentifier(out, "gl_FogFragCoord")) {
+            declarations.append(stage == ShaderCompiler.Stage.VERTEX ? "out" : "in")
+                    .append(" float ").append(PREFIX).append("FogFragCoord;\n");
+            out = replaceIdentifier(out, "gl_FogFragCoord", PREFIX + "FogFragCoord");
+        }
+
         if (TEX_COORD.matcher(out).find()) {
             declarations.append(stage == ShaderCompiler.Stage.VERTEX ? "out" : "in")
                     .append(" vec4 ").append(PREFIX).append("TexCoord[").append(TEX_COORD_COUNT).append("];\n");
@@ -251,6 +257,7 @@ public final class GlslPatcher {
             out = FRAG_DATA.matcher(out).replaceAll(PREFIX + "FragData[$1]");
         }
 
+        declarations.append(ShaderUniforms.declarations(out, stage == ShaderCompiler.Stage.VERTEX));
         return declarations.isEmpty() ? out : insertAfterVersion(out, declarations.toString());
     }
 
@@ -299,17 +306,26 @@ public final class GlslPatcher {
     }
 
     private static String renameReserved(String source) {
-        String out = source;
-        for (String word : RESERVED_LATER) {
-            if (usesIdentifier(out, word)) {
-                out = replaceIdentifier(out, word, PREFIX + word);
+        boolean shadowedTexture = SHADOWED_TEXTURE.matcher(source).find();
+        String[] lines = source.split("\n", -1);
+
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].stripLeading().startsWith("#")) {
+                continue;
             }
+            String line = lines[i];
+            for (String word : RESERVED_LATER) {
+                if (line.contains(word)) {
+                    line = replaceIdentifier(line, word, PREFIX + word);
+                }
+            }
+            if (shadowedTexture && line.contains("texture")) {
+                line = Pattern.compile("\\btexture\\b(?!\\s*\\()").matcher(line)
+                        .replaceAll(PREFIX + "texture");
+            }
+            lines[i] = line;
         }
-        if (SHADOWED_TEXTURE.matcher(out).find()) {
-            out = Pattern.compile("\\btexture\\b(?!\\s*\\()").matcher(out)
-                    .replaceAll(PREFIX + "texture");
-        }
-        return out;
+        return String.join("\n", lines);
     }
 
     private static String splitDeclarators(String source) {
@@ -357,6 +373,7 @@ public final class GlslPatcher {
                 || source.contains("gl_Normal")
                 || source.contains("gl_Color")
                 || source.contains("gl_Fog")
+                || source.contains("gl_FogFragCoord")
                 || FTRANSFORM.matcher(source).find();
     }
 
