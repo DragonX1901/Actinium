@@ -52,6 +52,23 @@ public final class ShaderDefines {
         defines.put("MC_RENDER_STAGE_WORLD_BORDER", "22");
         defines.put("MC_RENDER_STAGE_HAND_TRANSLUCENT", "23");
 
+        defines.put("DH_BLOCK_UNKNOWN", "0");
+        defines.put("DH_BLOCK_LEAVES", "1");
+        defines.put("DH_BLOCK_STONE", "2");
+        defines.put("DH_BLOCK_WOOD", "3");
+        defines.put("DH_BLOCK_METAL", "4");
+        defines.put("DH_BLOCK_DIRT", "5");
+        defines.put("DH_BLOCK_LAVA", "6");
+        defines.put("DH_BLOCK_DEEPSLATE", "7");
+        defines.put("DH_BLOCK_SNOW", "8");
+        defines.put("DH_BLOCK_SAND", "9");
+        defines.put("DH_BLOCK_TERRACOTTA", "10");
+        defines.put("DH_BLOCK_NETHER_STONE", "11");
+        defines.put("DH_BLOCK_WATER", "12");
+        defines.put("DH_BLOCK_GRASS", "13");
+        defines.put("DH_BLOCK_AIR", "14");
+        defines.put("DH_BLOCK_ILLUMINATED", "15");
+
         defines.put("IS_IRIS", "1");
         defines.put("IRIS_TAG_SUPPORT", "2");
         defines.put("IRIS_HAS_TRANSLUCENCY_SORTING", "1");

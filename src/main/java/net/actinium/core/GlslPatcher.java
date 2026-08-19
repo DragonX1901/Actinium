@@ -18,7 +18,8 @@ public final class GlslPatcher {
     private static final Pattern VERSION =
             Pattern.compile("^[ \\t]*#version[ \\t]+\\d+([ \\t]+\\w+)?[ \\t]*$", Pattern.MULTILINE);
     private static final Pattern UNIFORM = Pattern.compile(
-            "^\\s*uniform\\s+(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
+            "^\\s*(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
+                    + "uniform\\s+(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
                     + "(?<type>\\w+)\\s+(?<name>\\w+)\\s*(?<array>\\[\\s*\\d+\\s*])?"
                     + "(?:\\s*=\\s*(?<init>[^;]+))?\\s*;", Pattern.MULTILINE);
     private static final Pattern VARYING = Pattern.compile(
@@ -107,7 +108,7 @@ public final class GlslPatcher {
     public record UniformMember(String type, String name, int arraySize, int offsetBytes, int sizeBytes) {
     }
 
-    public record Sampler(String type, String name, int binding, int count) {
+    public record Sampler(String type, String name, int binding, int count, boolean storage) {
     }
 
     public record ProgramInterface(List<UniformMember> uniformBlock, int uniformBlockSize, List<Sampler> samplers,
@@ -400,14 +401,11 @@ public final class GlslPatcher {
                 String array = m.group("array");
                 int count = arrayCount(array);
 
-                if (IMAGE_TYPE.matcher(type).matches()) {
-                    throw new UnsupportedShaderException(name,
-                            "declares the storage image '" + type + "', which needs glBindImageTexture; "
-                                    + "this layer has no image units to bind it to");
-                }
-                if (SAMPLER_TYPE.matcher(type).matches()) {
+                boolean image = IMAGE_TYPE.matcher(type).matches();
+                if (image || SAMPLER_TYPE.matcher(type).matches()) {
                     if (!declared(samplers, name)) {
-                        samplers.add(new Sampler(type, name, FIRST_SAMPLER_BINDING + samplers.size(), count));
+                        samplers.add(new Sampler(type, name,
+                                FIRST_SAMPLER_BINDING + samplers.size(), count, image));
                     }
                     continue;
                 }
@@ -509,9 +507,10 @@ public final class GlslPatcher {
             Sampler sampler = iface.sampler(name);
 
             if (sampler != null) {
-                out.append(samplerDeclaration(sampler.type(), sampler.name(),
-                        sampler.binding(), sampler.count()));
-            } else if (SAMPLER_TYPE.matcher(type).matches()) {
+                out.append(sampler.storage() ? "writeonly " : "")
+                        .append(samplerDeclaration(sampler.type(), sampler.name(),
+                                sampler.binding(), sampler.count()));
+            } else if (SAMPLER_TYPE.matcher(type).matches() || IMAGE_TYPE.matcher(type).matches()) {
                 out.append(samplerDeclaration(type, name, spare++, arrayCount(m.group("array"))));
             } else if (!members.contains(name)) {
                 out.append(source, m.start(), m.end());

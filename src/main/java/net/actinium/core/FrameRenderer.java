@@ -34,6 +34,10 @@ public final class FrameRenderer {
     private VkSwapchain swapchain;
 
     private long renderPass = VK_NULL_HANDLE;
+    private long loadRenderPass = VK_NULL_HANDLE;
+    private boolean passOpen;
+    private boolean swapchainTouched;
+    private final float[] clearColour = {0.0f, 0.0f, 0.0f, 1.0f};
     private long[] framebuffers = new long[0];
     private long commandPool = VK_NULL_HANDLE;
     private VkCommandBuffer[] commandBuffers;
@@ -77,29 +81,79 @@ public final class FrameRenderer {
                     .sType$Default()
                     .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT));
 
+            clearColour[0] = r;
+            clearColour[1] = g;
+            clearColour[2] = b;
+            clearColour[3] = a;
+            swapchainTouched = false;
+            passOpen = false;
+            frameActive = true;
+            return cmd;
+        }
+    }
+
+    public void beginSwapchainPass() {
+        if (!frameActive || passOpen) {
+            return;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
             VkClearValue.Buffer clear = VkClearValue.calloc(1, stack);
-            clear.get(0).color().float32(0, r).float32(1, g).float32(2, b).float32(3, a);
+            clear.get(0).color()
+                    .float32(0, clearColour[0]).float32(1, clearColour[1])
+                    .float32(2, clearColour[2]).float32(3, clearColour[3]);
 
             VkRenderPassBeginInfo beginInfo = VkRenderPassBeginInfo.calloc(stack)
                     .sType$Default()
-                    .renderPass(renderPass)
+                    .renderPass(swapchainTouched ? loadRenderPass : renderPass)
                     .framebuffer(framebuffers[acquiredImage])
                     .pClearValues(clear);
             beginInfo.renderArea().offset().set(0, 0);
             beginInfo.renderArea().extent().set(swapchain.width(), swapchain.height());
 
-            vkCmdBeginRenderPass(cmd, beginInfo, VK_SUBPASS_CONTENTS_INLINE);
-            frameActive = true;
-            return cmd;
+            vkCmdBeginRenderPass(commandBuffers[frameIndex], beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+            passOpen = true;
+            swapchainTouched = true;
         }
+    }
+
+    public long swapchainPass() {
+        return swapchainTouched ? loadRenderPass : renderPass;
+    }
+
+    public void endPass() {
+        if (passOpen) {
+            vkCmdEndRenderPass(commandBuffers[frameIndex]);
+            passOpen = false;
+        }
+    }
+
+    public void notePassOpened() {
+        passOpen = true;
+    }
+
+    public boolean frameActive() {
+        return frameActive;
+    }
+
+    public int frameIndex() {
+        return frameIndex;
+    }
+
+    public VkCommandBuffer currentCommandBuffer() {
+        return commandBuffers == null ? null : commandBuffers[frameIndex];
     }
 
     public void endFrameAndPresent() {
         if (!frameActive) {
             return;
         }
+        endPass();
+        if (!swapchainTouched) {
+            beginSwapchainPass();
+            endPass();
+        }
+
         VkCommandBuffer cmd = commandBuffers[frameIndex];
-        vkCmdEndRenderPass(cmd);
         vkEndCommandBuffer(cmd);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -151,16 +205,21 @@ public final class FrameRenderer {
     }
 
     private void createRenderPass() {
+        renderPass = createRenderPass(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_IMAGE_LAYOUT_UNDEFINED);
+        loadRenderPass = createRenderPass(VK_ATTACHMENT_LOAD_OP_LOAD, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    }
+
+    private long createRenderPass(int loadOp, int initialLayout) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkAttachmentDescription.Buffer attachments = VkAttachmentDescription.calloc(1, stack);
             attachments.get(0)
                     .format(swapchain.imageFormat())
                     .samples(VK_SAMPLE_COUNT_1_BIT)
-                    .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
+                    .loadOp(loadOp)
                     .storeOp(VK_ATTACHMENT_STORE_OP_STORE)
                     .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE)
                     .stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
-                    .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                    .initialLayout(initialLayout)
                     .finalLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
             VkAttachmentReference.Buffer colorRef = VkAttachmentReference.calloc(1, stack)
@@ -190,7 +249,7 @@ public final class FrameRenderer {
 
             LongBuffer pRenderPass = stack.mallocLong(1);
             VkContext.check(vkCreateRenderPass(ctx.device(), info, null, pRenderPass), "vkCreateRenderPass");
-            renderPass = pRenderPass.get(0);
+            return pRenderPass.get(0);
         }
     }
 
@@ -280,6 +339,10 @@ public final class FrameRenderer {
             vkDestroyCommandPool(ctx.device(), commandPool, null);
         }
         destroyFramebuffers();
+        if (loadRenderPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(ctx.device(), loadRenderPass, null);
+            loadRenderPass = VK_NULL_HANDLE;
+        }
         if (renderPass != VK_NULL_HANDLE) {
             vkDestroyRenderPass(ctx.device(), renderPass, null);
         }

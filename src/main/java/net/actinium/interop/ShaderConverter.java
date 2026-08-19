@@ -92,6 +92,12 @@ public final class ShaderConverter {
         long fragmentModule = VK_NULL_HANDLE;
         try {
             GlslPatcher.ProgramInterface iface = GlslPatcher.inspect(sources, program.boundAttributes);
+            for (GlslPatcher.Sampler sampler : iface.samplers()) {
+                if (sampler.storage()) {
+                    return fail(program, "declares the storage image '" + sampler.name()
+                            + "', which needs glBindImageTexture; this layer has no image units");
+                }
+            }
             ShaderCompiler shaderc = compiler();
 
             for (Map.Entry<ShaderCompiler.Stage, String> entry : sources.entrySet()) {
@@ -439,7 +445,9 @@ public final class ShaderConverter {
             for (GlslPatcher.Sampler sampler : iface.samplers()) {
                 bindings.get(index++)
                         .binding(sampler.binding())
-                        .descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                        .descriptorType(sampler.storage()
+                                ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+                                : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                         .descriptorCount(sampler.count())
                         .stageFlags(SHADER_STAGES);
             }
