@@ -28,6 +28,10 @@ public final class GlslPatcher {
     private static final Pattern LEGACY_TEXTURE = Pattern.compile("\\btexture(2D|3D|Cube)\\s*\\(");
     private static final Pattern LEGACY_TEXTURE_LOD =
             Pattern.compile("\\b(?:texture(?:1D|2D|3D|Cube|2DArray)|shadow2D)Lod\\s*\\(");
+    private static final Pattern RESERVED_DECLARATION = Pattern.compile(
+            "\\b(?:[iu]?sampler\\w+|vec[234]|ivec[234]|float|int|uint|bool|mat[234](?:x[234])?)[ \\t]+"
+                    + "(?<name>texture|textureSize|textureLod|textureGrad|textureProj|sample)[ \\t]*[;,=\\[]");
+
     private static final Pattern LEGACY_TEXEL_FETCH =
             Pattern.compile("\\btexelFetch(?:1D|2D|3D|2DRect|Buffer)\\s*\\(");
     private static final Pattern LEGACY_SHADOW_PROJ =
@@ -37,6 +41,7 @@ public final class GlslPatcher {
     private static final Pattern LEGACY_TEXTURE_GRAD =
             Pattern.compile("\\btexture(?:1D|2D|3D|Cube)Grad(?:ARB)?\\s*\\(");
     private static final Pattern LEGACY_SHADOW = Pattern.compile("\\bshadow2D\\s*\\(");
+
     private static final Pattern FTRANSFORM = Pattern.compile("\\bftransform\\s*\\(\\s*\\)");
     private static final Pattern FOG_STATE =
             Pattern.compile("\\bgl_Fog\\s*\\.\\s*(color|start|end|density|scale)\\b");
@@ -242,11 +247,19 @@ public final class GlslPatcher {
             out = replaceIdentifier(out, "gl_FogFragCoord", PREFIX + "FogFragCoord");
         }
 
+        if (usesIdentifier(out, "gl_FogFragCoord")) {
+            declarations.append(stage == ShaderCompiler.Stage.VERTEX ? "out" : "in")
+                    .append(" float ").append(PREFIX).append("FogFragCoord;\n");
+            out = replaceIdentifier(out, "gl_FogFragCoord", PREFIX + "FogFragCoord");
+        }
+
         if (TEX_COORD.matcher(out).find()) {
             declarations.append(stage == ShaderCompiler.Stage.VERTEX ? "out" : "in")
                     .append(" vec4 ").append(PREFIX).append("TexCoord[").append(TEX_COORD_COUNT).append("];\n");
             out = TEX_COORD.matcher(out).replaceAll(PREFIX + "TexCoord");
         }
+
+        out = renameReserved(out);
 
         Matcher fragData = FRAG_DATA.matcher(out);
         int outputs = 0;
@@ -472,6 +485,7 @@ public final class GlslPatcher {
         out = assignLocations(out, stage, iface);
         out = LEGACY_TEXEL_FETCH.matcher(out).replaceAll("texelFetch(");
         out = LEGACY_SHADOW_PROJ.matcher(out).replaceAll("textureProj(");
+        out = LEGACY_TEXEL_FETCH.matcher(out).replaceAll("texelFetch(");
         out = LEGACY_TEXTURE_LOD.matcher(out).replaceAll("textureLod(");
         out = LEGACY_TEXTURE_PROJ.matcher(out).replaceAll("textureProj(");
         out = LEGACY_TEXTURE_GRAD.matcher(out).replaceAll("textureGrad(");

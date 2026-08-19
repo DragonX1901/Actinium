@@ -62,6 +62,9 @@ public final class ShaderCorpus {
                 System.out.println("  " + failure.program() + ": " + failure.reason());
             }
             failures += report.failures().size();
+            for (Map.Entry<String, Integer> kind : kinds(report.failures()).entrySet()) {
+                System.out.println("    " + kind.getValue() + "x " + kind.getKey());
+            }
         }
         if (failures > 0) {
             System.exit(1);
@@ -267,6 +270,21 @@ public final class ShaderCorpus {
             throw new UncheckedIOException(e);
         }
         return files;
+    }
+
+    private static Map<String, Integer> kinds(List<Failure> failures) {
+        Map<String, Integer> counted = new LinkedHashMap<>();
+        for (Failure failure : failures) {
+            String reason = failure.reason();
+            int marker = reason.indexOf("error: ");
+            String kind = marker < 0 ? reason : reason.substring(marker + 7);
+            counted.merge(kind.replaceAll("'[^']*'", "'X'").replaceAll("[0-9]+", "N"), 1, Integer::sum);
+        }
+        return counted.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(4)
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                        (a, b) -> a, LinkedHashMap::new));
     }
 
     private static void dump(String name, RuntimeException e) {
