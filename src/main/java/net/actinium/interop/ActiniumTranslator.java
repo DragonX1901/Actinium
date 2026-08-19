@@ -17,6 +17,9 @@ import static org.lwjgl.vulkan.VK10.*;
 public final class ActiniumTranslator {
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Translator");
 
+    private static final int GL_DEPTH_BUFFER_BIT = 0x100;
+    private static final int GL_COLOR_BUFFER_BIT = 0x4000;
+
     private static final ActiniumTranslator INSTANCE = new ActiniumTranslator();
 
     public static ActiniumTranslator get() {
@@ -31,6 +34,12 @@ public final class ActiniumTranslator {
 
     private int lastFrameIndex = -1;
 
+    private int activeFramebuffer = -1;
+    private boolean passOpen;
+    private boolean reportedFirstDraw;
+    private int swapchainDraws;
+    private int offscreenDraws;
+
     private int drawsThisFrame;
     private int pipelineBindsThisFrame;
     private int cacheMissesThisFrame;
@@ -38,18 +47,35 @@ public final class ActiniumTranslator {
     private ActiniumTranslator() {
     }
 
+    public void beginFrame(VkCommandBuffer cmd) {
+        beginFrame(cmd, VK_NULL_HANDLE, 0);
+        this.passOpen = false;
+        this.activeFramebuffer = -1;
+    }
+
     public void beginFrame(VkCommandBuffer cmd, long renderPass, int subpass) {
+        DeferredDestroy.beginFrame(VulkanBackend.require());
         DescriptorAllocator.beginFrame(VulkanBackend.require());
         UniformRing.beginFrame(VulkanBackend.require());
         this.currentCommandBuffer = cmd;
         this.currentRenderPass = renderPass;
         this.currentSubpass = subpass;
+        this.lastFrameIndex = VulkanBackend.require().currentFrameIndex();
+        this.passOpen = true;
+        this.activeFramebuffer = 0;
         this.drawsThisFrame = 0;
         this.pipelineBindsThisFrame = 0;
         this.cacheMissesThisFrame = 0;
     }
 
     public void endFrame() {
+        endActivePass();
+        if (drawsThisFrame > 0) {
+            LOGGER.debug("Frame: {} draws, {} to the swapchain, {} to framebuffer objects",
+                    drawsThisFrame, swapchainDraws, offscreenDraws);
+        }
+        swapchainDraws = 0;
+        offscreenDraws = 0;
         if (cacheMissesThisFrame > 0) {
             LOGGER.warn("{} pipeline cache miss(es) this frame — expect a hitch. "
                     + "{} draws, {} pipeline binds.", cacheMissesThisFrame, drawsThisFrame, pipelineBindsThisFrame);
@@ -76,13 +102,121 @@ public final class ActiniumTranslator {
         currentRenderPass = VK_NULL_HANDLE;
         lastFrameIndex = -1;
 
+        FramebufferCache.destroy(backend);
         ActiniumGLState.get().destroyObjects(backend);
+        DeferredDestroy.drain(backend);
         DescriptorAllocator.destroy(backend);
         UniformRing.destroy(backend);
         QuadIndexBuffer.destroy(backend);
         SamplerCache.destroy(backend);
         TransferQueue.destroy(backend);
         PipelineBuilder.destroy(backend);
+    }
+
+    public void bindFramebuffer(int name) {
+        if (passOpen && name != activeFramebuffer) {
+            endActivePass();
+        }
+    }
+
+    private boolean ensurePass() {
+        if (passOpen) {
+            return true;
+        }
+        VulkanBackend backend = VulkanBackend.get();
+        if (backend == null || !backend.ownsRenderPasses()) {
+            return currentRenderPass != VK_NULL_HANDLE || resolveRenderPass() != VK_NULL_HANDLE;
+        }
+
+        int target = ActiniumGLState.get().boundDrawFramebuffer();
+        ActiniumGLState.GLFramebuffer framebuffer = target == 0
+                ? null : ActiniumGLState.get().framebuffer(target);
+
+        if (framebuffer != null) {
+            VkCommandBuffer cmd = resolveCommandBuffer();
+            if (cmd == null) {
+                return false;
+            }
+            long pass = FramebufferCache.renderPassFor(backend, framebuffer);
+            if (pass != VK_NULL_HANDLE && FramebufferCache.begin(backend, cmd, framebuffer)) {
+                currentRenderPass = pass;
+                activeFramebuffer = target;
+                passOpen = true;
+                return true;
+            }
+        }
+
+        long pass = backend.beginDefaultPass();
+        if (pass == VK_NULL_HANDLE) {
+            return false;
+        }
+        currentRenderPass = pass;
+        activeFramebuffer = 0;
+        passOpen = true;
+        return true;
+    }
+
+    private void endActivePass() {
+        if (!passOpen) {
+            return;
+        }
+        VulkanBackend backend = VulkanBackend.get();
+        passOpen = false;
+        if (backend == null || !backend.ownsRenderPasses()) {
+            return;
+        }
+        if (activeFramebuffer > 0) {
+            VkCommandBuffer cmd = resolveCommandBuffer();
+            ActiniumGLState.GLFramebuffer framebuffer =
+                    ActiniumGLState.get().framebuffer(activeFramebuffer);
+            if (cmd != null && framebuffer != null) {
+                vkCmdEndRenderPass(cmd);
+                FramebufferCache.endedPass(cmd, framebuffer);
+            }
+        } else {
+            backend.endDefaultPass();
+        }
+        activeFramebuffer = -1;
+    }
+
+    public void clear(int mask, float red, float green, float blue, float alpha) {
+        VkCommandBuffer cmd = resolveCommandBuffer();
+        if (cmd == null || !ensurePass()) {
+            return;
+        }
+        ActiniumGLState state = ActiniumGLState.get();
+        int[] viewport = state.viewportBox();
+        if (viewport[2] <= 0 || viewport[3] <= 0) {
+            return;
+        }
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            int count = 0;
+            org.lwjgl.vulkan.VkClearAttachment.Buffer attachments =
+                    org.lwjgl.vulkan.VkClearAttachment.calloc(2, stack);
+            if ((mask & GL_COLOR_BUFFER_BIT) != 0) {
+                attachments.get(count).aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).colorAttachment(0)
+                        .clearValue().color().float32(stack.floats(red, green, blue, alpha));
+                count++;
+            }
+            if ((mask & GL_DEPTH_BUFFER_BIT) != 0) {
+                attachments.get(count).aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
+                        .clearValue().depthStencil().set(1.0f, 0);
+                count++;
+            }
+            if (count == 0) {
+                return;
+            }
+            attachments.limit(count);
+
+            org.lwjgl.vulkan.VkClearRect.Buffer rect = org.lwjgl.vulkan.VkClearRect.calloc(1, stack)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+            rect.rect().offset().set(Math.max(0, viewport[0]), Math.max(0, viewport[1]));
+            rect.rect().extent().set(viewport[2], viewport[3]);
+
+            vkCmdClearAttachments(cmd, attachments, rect);
+        }
     }
 
     public void invalidateProgram(int program) {
@@ -109,7 +243,7 @@ public final class ActiniumTranslator {
 
     public void drawArrays(int mode, int first, int count) {
         VkCommandBuffer cmd = requireCommandBuffer("glDrawArrays");
-        if (cmd == null) {
+        if (cmd == null || !ensurePass()) {
             return;
         }
         if (mode == GLConstants.GL_QUADS) {
@@ -137,7 +271,7 @@ public final class ActiniumTranslator {
 
     public void drawElements(int mode, int count, int type, long indicesOffset) {
         VkCommandBuffer cmd = requireCommandBuffer("glDrawElements");
-        if (cmd == null) {
+        if (cmd == null || !ensurePass()) {
             return;
         }
         ActiniumGLState state = ActiniumGLState.get();
@@ -164,7 +298,7 @@ public final class ActiniumTranslator {
 
     public void drawElementsInstanced(int mode, int count, int type, long indicesOffset, int instanceCount) {
         VkCommandBuffer cmd = requireCommandBuffer("glDrawElementsInstanced");
-        if (cmd == null) {
+        if (cmd == null || !ensurePass()) {
             return;
         }
         ActiniumGLState state = ActiniumGLState.get();
@@ -205,6 +339,31 @@ public final class ActiniumTranslator {
         }
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         pipelineBindsThisFrame++;
+        if (activeFramebuffer > 0) {
+            offscreenDraws++;
+        } else {
+            swapchainDraws++;
+        }
+
+        if (!reportedFirstDraw) {
+            reportedFirstDraw = true;
+            int[] vp = state.viewportBox();
+            int[] sc = state.scissorBox();
+            ActiniumGLState.GLProgram first = state.program(state.boundProgram());
+            LOGGER.debug("First draw: viewport {}x{} at {},{}; scissor {} {}x{}; program {} with {} uniform byte(s), {} sampler(s)",
+                    vp[2], vp[3], vp[0], vp[1], state.scissorEnabled(), sc[2], sc[3],
+                    state.boundProgram(),
+                    first == null || first.uniformStaging == null ? 0 : first.uniformStaging.capacity(),
+                    first == null ? 0 : first.samplerBindings.size());
+            if (first != null && first.uniformStaging != null) {
+                StringBuilder values = new StringBuilder();
+                for (int i = 0; i < Math.min(20, first.uniformStaging.capacity() / 4); i++) {
+                    values.append(String.format("%.2f ", first.uniformStaging.getFloat(i * 4)));
+                }
+                LOGGER.debug("First draw uniforms: {}", values);
+                LOGGER.debug("First draw uniform names: {}", first.uniformOffsets);
+            }
+        }
 
         ActiniumGLState.GLProgram bound = state.program(state.boundProgram());
         if (bound != null) {
@@ -315,6 +474,7 @@ public final class ActiniumTranslator {
             return;
         }
         lastFrameIndex = frame;
+        DeferredDestroy.beginFrame(backend);
         DescriptorAllocator.beginFrame(backend);
         UniformRing.beginFrame(backend);
         drawsThisFrame = 0;

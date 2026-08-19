@@ -38,6 +38,7 @@ public final class FrameRenderer {
     private boolean passOpen;
     private boolean swapchainTouched;
     private final float[] clearColour = {0.0f, 0.0f, 0.0f, 1.0f};
+    private long presentedFrames;
     private long[] framebuffers = new long[0];
     private long commandPool = VK_NULL_HANDLE;
     private VkCommandBuffer[] commandBuffers;
@@ -154,6 +155,11 @@ public final class FrameRenderer {
         }
 
         VkCommandBuffer cmd = commandBuffers[frameIndex];
+        boolean capture = FrameCapture.wanted() && presentedFrames % 60 == 0;
+        if (capture) {
+            FrameCapture.record(ctx, cmd, swapchain.images()[acquiredImage],
+                    swapchain.width(), swapchain.height());
+        }
         vkEndCommandBuffer(cmd);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -172,12 +178,20 @@ public final class FrameRenderer {
             }
         }
 
+        if (capture) {
+            vkQueueWaitIdle(ctx.graphicsQueue());
+            FrameCapture.write(ctx, swapchain.width(), swapchain.height(),
+                    swapchain.imageFormat() == VK_FORMAT_B8G8R8A8_UNORM
+                            || swapchain.imageFormat() == VK_FORMAT_B8G8R8A8_SRGB);
+        }
+
         if (!swapchain.present(acquiredImage, renderFinished[frameIndex])) {
             needsRecreate = true;
         }
 
         frameActive = false;
         acquiredImage = -1;
+        presentedFrames++;
         frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
     }
 

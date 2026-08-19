@@ -27,7 +27,7 @@ public final class ActiniumSettingsApplier {
             if (renderer != null) {
                 renderer.resize(minecraft.getWindow().getWidth(),
                         minecraft.getWindow().getHeight(),
-                        ActiniumOptions.get().vsync);
+                        minecraft.options.enableVsync().get());
             } else {
                 VulkanModConfig.get().scheduleSwapChainUpdate();
             }

@@ -119,6 +119,14 @@ neoForge {
                 systemProperty("actinium.renderer", "true")
             }
 
+            // Write what the swapchain actually presented, every sixtieth frame:
+            //   ./gradlew runClient -Prenderer -Pcapture=build/frame.png
+            // A screenshot taken from the X server proves nothing when the window is not
+            // composited; this comes off the image the GPU presented.
+            (project.findProperty("capture") as String?)?.let {
+                systemProperty("actinium.captureFrame", it)
+            }
+
             // Name the caller that freed each Vulkan image, for chasing a use-after-free:
             //   ./gradlew runClient -PtraceFrees
             if (project.hasProperty("traceFrees")) {
@@ -468,6 +476,16 @@ tasks.register<JavaExec>("renderTest") {
     if (!file("/dev/dri").exists() && softwareIcd.exists()) {
         environment("VK_ICD_FILENAMES", softwareIcd.absolutePath)
     }
+}
+
+tasks.register<JavaExec>("irisCheck") {
+    group = "verification"
+    description = "Checks that Iris's own shader pack screen resolves through the compat bridge."
+    mainClass = "net.actinium.dev.IrisBridgeCheck"
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    val irisJar = project.findProperty("iris") as String?
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime +
+            (if (irisJar != null) files(irisJar) else files())
 }
 
 tasks.register("listConfigs") {

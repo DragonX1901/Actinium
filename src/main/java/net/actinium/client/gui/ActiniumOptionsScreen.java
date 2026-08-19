@@ -96,10 +96,11 @@ public class ActiniumOptionsScreen extends Screen {
         int applyX = doneX - buttonWidth - gap;
         int undoX = applyX - buttonWidth - gap;
 
-        addWidget(new ActiniumButton(MARGIN, buttonY, 96, 20,
+        ActiniumButton shaderPacks = addWidget(new ActiniumButton(MARGIN, buttonY, 96, 20,
                 Component.translatable("actinium.options.shaderpacks"),
-                ActiniumButton.Style.SECONDARY,
-                () -> minecraft.setScreen(new ShaderPackScreen(this))));
+                ActiniumButton.Style.SECONDARY, this::openShaderPacks));
+        shaderPacks.active = net.actinium.compat.IrisShaderScreen.isAvailable();
+        buttons.add(shaderPacks);
 
         undoButton = addWidget(new ActiniumButton(undoX, buttonY, buttonWidth, 20,
                 Component.translatable("actinium.options.undo"),
@@ -116,6 +117,13 @@ public class ActiniumOptionsScreen extends Screen {
         buttons.add(doneButton);
 
         updateButtonStates();
+    }
+
+    private void openShaderPacks() {
+        Screen screen = net.actinium.compat.IrisShaderScreen.create(this);
+        if (screen != null) {
+            minecraft.setScreen(screen);
+        }
     }
 
     private void rebuildRows() {

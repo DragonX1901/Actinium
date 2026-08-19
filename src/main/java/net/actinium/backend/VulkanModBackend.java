@@ -146,7 +146,14 @@ final class VulkanModBackend implements VulkanBackend {
     @Override
     public VkQueue graphicsQueue() {
         Object queue = invoke(getGraphicsQueue, null);
-        return (VkQueue) invoke(queueHandle, queue);
+        Object handle = invoke(queueHandle, queue);
+        if (handle instanceof Long id) {
+            return new VkQueue(id, device());
+        }
+        if (handle instanceof VkQueue vk) {
+            return vk;
+        }
+        throw new IllegalStateException("VulkanMod graphics queue handle is " + handle);
     }
 
     @Override

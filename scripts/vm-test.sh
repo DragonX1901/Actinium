@@ -62,7 +62,7 @@ if [ "$client" = true ]; then
         export ACTINIUM_LOG="$log"
         export ACTINIUM_SHOT="$shot"
         timeout 480 xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
-            ./gradlew runClient -Prenderer >"$ACTINIUM_LOG" 2>&1 &
+            ./gradlew runClient -Prenderer -Pcapture=build/vm-frame.png >"$ACTINIUM_LOG" 2>&1 &
             game=$!
             for _ in $(seq 1 80); do
                 sleep 5
@@ -89,6 +89,13 @@ if [ "$client" = true ]; then
             grep -m3 -oE "VUID-[A-Za-z0-9-]+" "$log" | sort -u | sed 's/^/      /'
         else
             ok "no validation errors"
+        fi
+
+        if [ -f build/vm-frame.png ]; then
+            ok "captured build/vm-frame.png from the swapchain"
+            command -v identify >/dev/null && identify build/vm-frame.png | sed 's/^/      /'
+        else
+            bad "the renderer presented no frame to capture"
         fi
 
         if [ -f "$shot" ]; then

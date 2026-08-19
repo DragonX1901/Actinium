@@ -32,8 +32,8 @@ public abstract class VulkanImageMixin {
             int baseLevel, int oldLayout, int newLayout,
             int sourceStage, int srcAccessMask, int destinationStage, int dstAccessMask,
             CallbackInfo ci) {
-        long handle = handleOf(image);
-        boolean dead = image == null || handle == 0L
+        long handle = image == null ? 0L : handleOf(image);
+        boolean dead = handle == 0L
                 || (handle != -1L && ACTINIUM$FREED.contains(handle)
                     && !ACTINIUM$LIVE.contains(handle));
         if (dead) {

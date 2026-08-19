@@ -62,6 +62,8 @@ public final class ActiniumClient {
             case OFF -> LOGGER.warn("Interop disabled; OpenGL mods will not draw");
         }
 
+        LOGGER.info("Shader pack screen: {}", net.actinium.compat.IrisShaderScreen.isAvailable()
+                ? "Iris" : "not available, no Iris installed");
         LOGGER.info("Actinium online — {} on {}", interopMode, ctx.deviceName());
     }
 
@@ -69,9 +71,14 @@ public final class ActiniumClient {
         return null;
     }
 
-    public static void present() {
+    private static boolean frameOpen;
+
+    public static VkCommandBuffer beginFrameIfNeeded() {
         if (renderer == null) {
-            return;
+            return null;
+        }
+        if (frameOpen) {
+            return renderer.currentCommandBuffer();
         }
         if (renderer.needsRecreate()) {
             resizeFromWindow();
@@ -84,14 +91,25 @@ public final class ActiniumClient {
                 net.actinium.renderer.GlEmulation.clearAlpha());
         if (cmd == null) {
             resizeFromWindow();
+            return null;
+        }
+
+        frameOpen = true;
+        ActiniumTranslator.get().beginFrame(cmd);
+        return cmd;
+    }
+
+    public static void present() {
+        if (renderer == null) {
+            return;
+        }
+        if (beginFrameIfNeeded() == null) {
             return;
         }
 
-        ActiniumTranslator.get().beginFrame(cmd, renderer.renderPass(), 0);
-
         ActiniumTranslator.get().endFrame();
-
         renderer.endFrameAndPresent();
+        frameOpen = false;
     }
 
     private static void resizeFromWindow() {

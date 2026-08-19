@@ -11,19 +11,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class RenderStateMixin {
     @Inject(method = "_viewport(IIII)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$viewport(int x, int y, int width, int height, CallbackInfo ci) {
-        GlEmulation.unported("viewport");
+        GlEmulation.viewport(x, y, width, height);
         ci.cancel();
     }
 
     @Inject(method = "_scissorBox(IIII)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$scissorBox(int x, int y, int width, int height, CallbackInfo ci) {
-        GlEmulation.unported("scissor box");
+        GlEmulation.scissor(x, y, width, height);
         ci.cancel();
     }
 
     @Inject(method = "_blendFunc(II)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$blendFunc(int sourceFactor, int destFactor, CallbackInfo ci) {
-        GlEmulation.unported("blend function");
+        GlEmulation.blendFunc(sourceFactor, destFactor);
         ci.cancel();
     }
 
@@ -31,32 +31,32 @@ public abstract class RenderStateMixin {
             remap = false)
     private static void actinium$blendFuncSeparate(int sourceRgb, int destRgb, int sourceAlpha,
                                                    int destAlpha, CallbackInfo ci) {
-        GlEmulation.unported("blend function");
+        GlEmulation.blendFuncSeparate(sourceRgb, destRgb, sourceAlpha, destAlpha);
         ci.cancel();
     }
 
     @Inject(method = "_blendEquation(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$blendEquation(int mode, CallbackInfo ci) {
-        GlEmulation.unported("blend equation");
+        GlEmulation.blendEquation(mode);
         ci.cancel();
     }
 
     @Inject(method = "_depthFunc(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$depthFunc(int func, CallbackInfo ci) {
-        GlEmulation.unported("depth function");
+        GlEmulation.depthFunc(func);
         ci.cancel();
     }
 
     @Inject(method = "_depthMask(Z)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$depthMask(boolean writeEnabled, CallbackInfo ci) {
-        GlEmulation.unported("depth mask");
+        GlEmulation.depthMask(writeEnabled);
         ci.cancel();
     }
 
     @Inject(method = "_colorMask(ZZZZ)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$colorMask(boolean red, boolean green, boolean blue, boolean alpha,
                                            CallbackInfo ci) {
-        GlEmulation.unported("colour mask");
+        GlEmulation.colorMask(red, green, blue, alpha);
         ci.cancel();
     }
 
@@ -81,7 +81,7 @@ public abstract class RenderStateMixin {
 
     @Inject(method = "_polygonMode(II)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$polygonMode(int face, int mode, CallbackInfo ci) {
-        GlEmulation.unported("polygon mode");
+        GlEmulation.polygonMode(mode);
         ci.cancel();
     }
 
@@ -118,7 +118,7 @@ public abstract class RenderStateMixin {
 
     @Inject(method = "_clear(IZ)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$clear(int mask, boolean checkError, CallbackInfo ci) {
-        GlEmulation.unported("clear");
+        GlEmulation.clear(mask);
         ci.cancel();
     }
 }

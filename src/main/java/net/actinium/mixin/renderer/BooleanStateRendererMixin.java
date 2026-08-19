@@ -12,7 +12,7 @@ public abstract class BooleanStateRendererMixin {
             at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glEnable(I)V"),
             remap = false)
     private void actinium$enable(int cap) {
-        GlEmulation.unported("glEnable");
+        GlEmulation.setCapability(cap, true);
     }
 
     @Redirect(
@@ -20,6 +20,6 @@ public abstract class BooleanStateRendererMixin {
             at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glDisable(I)V"),
             remap = false)
     private void actinium$disable(int cap) {
-        GlEmulation.unported("glDisable");
+        GlEmulation.setCapability(cap, false);
     }
 }

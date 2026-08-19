@@ -51,12 +51,37 @@ final class ActiniumBackend implements VulkanBackend {
 
     @Override
     public VkCommandBuffer currentCommandBuffer() {
-        return null;
+        return ActiniumClient.beginFrameIfNeeded();
     }
 
     @Override
     public int currentFrameIndex() {
-        return 0;
+        FrameRenderer renderer = ActiniumClient.renderer();
+        return renderer == null ? 0 : renderer.frameIndex();
+    }
+
+    @Override
+    public boolean ownsRenderPasses() {
+        return true;
+    }
+
+    @Override
+    public long beginDefaultPass() {
+        FrameRenderer renderer = ActiniumClient.renderer();
+        if (renderer == null) {
+            return 0L;
+        }
+        ActiniumClient.beginFrameIfNeeded();
+        renderer.beginSwapchainPass();
+        return renderer.swapchainPass();
+    }
+
+    @Override
+    public void endDefaultPass() {
+        FrameRenderer renderer = ActiniumClient.renderer();
+        if (renderer != null) {
+            renderer.endPass();
+        }
     }
 
     @Override

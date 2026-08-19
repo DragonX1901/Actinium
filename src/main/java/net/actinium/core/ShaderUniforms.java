@@ -223,6 +223,8 @@ public final class ShaderUniforms {
                         + "(?!return[ \\t]|discard[ \\t])\\w+[ \\t]+" + name + "[ \\t]*[;,=\\[]",
                         Pattern.MULTILINE).matcher(source).find()
                 && !Pattern.compile("\\(\\s*(?:\\w+\\s+)*\\w+\\s+" + name + "\\s*[,)]")
-                        .matcher(source).find();
+                        .matcher(source).find()
+                && !Pattern.compile("(?:^|[;{}\\n])[ \\t]*(?:\\w+[ \\t]+)*\\w+[ \\t]+"
+                        + name + "[ \\t]*\\(", Pattern.MULTILINE).matcher(source).find();
     }
 }

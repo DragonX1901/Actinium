@@ -30,6 +30,7 @@ public abstract class GeometryMixin {
 
     @Inject(method = "_glBindVertexArray(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$bindVertexArray(int name, CallbackInfo ci) {
+        GlEmulation.bindVertexArray(name);
         ci.cancel();
     }
 
@@ -37,13 +38,13 @@ public abstract class GeometryMixin {
             cancellable = true, remap = false)
     private static void actinium$bufferData(int target, ByteBuffer data, int usage,
                                             CallbackInfo ci) {
-        GlEmulation.bufferData(target, data == null ? 0 : data.remaining());
+        GlEmulation.bufferData(target, data, usage);
         ci.cancel();
     }
 
     @Inject(method = "_glBufferData(IJI)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$bufferStorage(int target, long size, int usage, CallbackInfo ci) {
-        GlEmulation.bufferData(target, size);
+        GlEmulation.bufferStorage(target, size, usage);
         ci.cancel();
     }
 
@@ -56,6 +57,7 @@ public abstract class GeometryMixin {
 
     @Inject(method = "_glUnmapBuffer(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$unmapBuffer(int target, CallbackInfo ci) {
+        GlEmulation.unmapBuffer(target);
         ci.cancel();
     }
 
@@ -76,7 +78,7 @@ public abstract class GeometryMixin {
     private static void actinium$vertexAttribPointer(int index, int size, int type,
                                                      boolean normalised, int stride, long offset,
                                                      CallbackInfo ci) {
-        GlEmulation.unported("vertex attribute");
+        GlEmulation.vertexAttribPointer(index, size, type, normalised, stride, offset);
         ci.cancel();
     }
 
@@ -84,26 +86,28 @@ public abstract class GeometryMixin {
             remap = false)
     private static void actinium$vertexAttribIPointer(int index, int size, int type, int stride,
                                                       long offset, CallbackInfo ci) {
-        GlEmulation.unported("vertex attribute");
+        GlEmulation.vertexAttribPointer(index, size, type, false, stride, offset);
         ci.cancel();
     }
 
     @Inject(method = "_enableVertexAttribArray(I)V", at = @At("HEAD"), cancellable = true,
             remap = false)
     private static void actinium$enableVertexAttribArray(int index, CallbackInfo ci) {
+        GlEmulation.enableVertexAttribArray(index, true);
         ci.cancel();
     }
 
     @Inject(method = "_disableVertexAttribArray(I)V", at = @At("HEAD"), cancellable = true,
             remap = false)
     private static void actinium$disableVertexAttribArray(int index, CallbackInfo ci) {
+        GlEmulation.enableVertexAttribArray(index, false);
         ci.cancel();
     }
 
     @Inject(method = "_drawElements(IIIJ)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$drawElements(int mode, int count, int type, long indices,
                                               CallbackInfo ci) {
-        GlEmulation.unported("draw");
+        GlEmulation.drawElements(mode, count, type, indices);
         ci.cancel();
     }
 }

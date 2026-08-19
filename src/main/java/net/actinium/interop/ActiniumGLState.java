@@ -236,6 +236,7 @@ public final class ActiniumGLState {
 
     public static final class GLFramebuffer {
         public final int name;
+        public int colorTexture;
         public long vkRenderPass;
         public long vkFramebuffer;
         public final long[] colorAttachments = new long[8];

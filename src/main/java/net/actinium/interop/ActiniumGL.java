@@ -412,7 +412,17 @@ public final class ActiniumGL {
     }
 
     public static void glBindFramebuffer(int target, int framebuffer) {
+        translator().bindFramebuffer(framebuffer);
         state().bindFramebuffer(target, framebuffer);
+    }
+
+    public static void glFramebufferTexture2D(int target, int attachment, int textureTarget,
+                                              int texture, int level) {
+        ActiniumGLState.GLFramebuffer framebuffer =
+                state().framebuffer(state().boundDrawFramebuffer());
+        if (framebuffer != null && attachment == GLConstants.GL_COLOR_ATTACHMENT0) {
+            framebuffer.colorTexture = texture;
+        }
     }
 
     public static void glDrawArrays(int mode, int first, int count) {

@@ -20,21 +20,28 @@ final class DescriptorAllocator {
 
     private static final int SETS_PER_POOL = 4096;
 
-    private static long pool = VK_NULL_HANDLE;
+    private static final int POOL_COUNT = 3;
+
+    private static final long[] POOLS = new long[POOL_COUNT];
+
+    private static int current;
 
     private DescriptorAllocator() {
     }
 
     static void beginFrame(VulkanBackend ctx) {
-        if (pool != VK_NULL_HANDLE) {
-            vkResetDescriptorPool(ctx.device(), pool, 0);
+        current = (current + 1) % POOL_COUNT;
+        if (POOLS[current] != VK_NULL_HANDLE) {
+            vkResetDescriptorPool(ctx.device(), POOLS[current], 0);
         }
     }
 
     static void destroy(VulkanBackend ctx) {
-        if (pool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(ctx.device(), pool, null);
-            pool = VK_NULL_HANDLE;
+        for (int i = 0; i < POOL_COUNT; i++) {
+            if (POOLS[i] != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(ctx.device(), POOLS[i], null);
+                POOLS[i] = VK_NULL_HANDLE;
+            }
         }
     }
 
@@ -49,7 +56,7 @@ final class DescriptorAllocator {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorSetAllocateInfo allocInfo = VkDescriptorSetAllocateInfo.calloc(stack)
                     .sType$Default()
-                    .descriptorPool(pool)
+                    .descriptorPool(POOLS[current])
                     .pSetLayouts(stack.longs(program.descriptorSetLayout));
 
             LongBuffer pSet = stack.mallocLong(1);
@@ -89,6 +96,9 @@ final class DescriptorAllocator {
                 if (texture == null || texture.vkImageView == VK_NULL_HANDLE) {
                     continue;
                 }
+                if (texture.currentLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                    TextureUploader.makeSampleable(ctx, texture);
+                }
                 VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack)
                         .imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
                         .imageView(texture.vkImageView)
@@ -111,7 +121,7 @@ final class DescriptorAllocator {
     }
 
     private static void ensurePool(VulkanBackend ctx) {
-        if (pool != VK_NULL_HANDLE) {
+        if (POOLS[current] != VK_NULL_HANDLE) {
             return;
         }
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -127,7 +137,7 @@ final class DescriptorAllocator {
 
             LongBuffer pPool = stack.mallocLong(1);
             vkCreateDescriptorPool(ctx.device(), info, null, pPool);
-            pool = pPool.get(0);
+            POOLS[current] = pPool.get(0);
         }
     }
 }

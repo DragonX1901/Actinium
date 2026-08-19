@@ -22,7 +22,7 @@ public abstract class FramebufferMixin {
 
     @Inject(method = "_glBindFramebuffer(II)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$bindFramebuffer(int target, int name, CallbackInfo ci) {
-        GlEmulation.unported("bind framebuffer");
+        GlEmulation.bindFramebuffer(target, name);
         ci.cancel();
     }
 
@@ -66,7 +66,7 @@ public abstract class FramebufferMixin {
     private static void actinium$framebufferTexture2D(int target, int attachment,
                                                       int textureTarget, int texture, int level,
                                                       CallbackInfo ci) {
-        GlEmulation.unported("texture attachment");
+        GlEmulation.framebufferTexture(target, attachment, textureTarget, texture, level);
         ci.cancel();
     }
 

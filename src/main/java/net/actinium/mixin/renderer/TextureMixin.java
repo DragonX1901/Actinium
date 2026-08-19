@@ -40,17 +40,19 @@ public abstract class TextureMixin {
 
     @Inject(method = "_bindTexture(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$bindTexture(int name, CallbackInfo ci) {
+        GlEmulation.bindTexture(name);
         ci.cancel();
     }
 
     @Inject(method = "glActiveTexture(I)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$activeTexture(int unit, CallbackInfo ci) {
+        GlEmulation.activeTexture(unit);
         ci.cancel();
     }
 
     @Inject(method = "_texParameter(III)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$texParameterInt(int target, int name, int value, CallbackInfo ci) {
-        GlEmulation.unported("texture parameter");
+        GlEmulation.texParameter(target, name, value);
         ci.cancel();
     }
 
@@ -73,7 +75,8 @@ public abstract class TextureMixin {
     private static void actinium$texImage2D(int target, int level, int internalFormat, int width,
                                             int height, int border, int format, int type,
                                             IntBuffer pixels, CallbackInfo ci) {
-        GlEmulation.textureStorage(level, width, height);
+        GlEmulation.texImage2D(target, level, internalFormat, width, height, border,
+                format, type, pixels);
         ci.cancel();
     }
 
