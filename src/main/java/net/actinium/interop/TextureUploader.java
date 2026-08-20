@@ -27,6 +27,10 @@ final class TextureUploader {
                        int width, int height, int format, int type, ByteBuffer pixels) {
         int vkFormat = format(internalFormat);
 
+        if (level > 0) {
+            return;
+        }
+
         if (texture.vkImage == VK_NULL_HANDLE || texture.width != width || texture.height != height
                 || texture.internalFormat != vkFormat) {
             createImage(ctx, texture, width, height, vkFormat);
