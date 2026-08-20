@@ -136,6 +136,10 @@ neoForge {
                 systemProperty("actinium.debugClear", "true")
             }
 
+            (project.findProperty("dumpTexture") as String?)?.let {
+                systemProperty("actinium.dumpTexture", it)
+            }
+
             if (project.hasProperty("debugTriangle")) {
                 systemProperty("actinium.debugTriangle", "true")
             }

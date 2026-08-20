@@ -110,6 +110,9 @@ public final class ActiniumClient {
         if (Boolean.getBoolean("actinium.debugClear")) {
             ActiniumTranslator.get().paintDebugFrame();
         }
+        if (System.getProperty("actinium.dumpTexture") != null) {
+            net.actinium.dev.TextureDump.dumpOnce(256, 256);
+        }
         if (Boolean.getBoolean("actinium.debugTriangle")) {
             net.actinium.dev.DebugOverlay.draw();
         }
