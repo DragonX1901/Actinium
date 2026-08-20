@@ -142,6 +142,9 @@ public final class ShaderCorpus {
                     continue;
                 }
                 String name = entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1);
+                if (packRoot != null && !isProgram(name)) {
+                    continue;
+                }
                 Map<ShaderCompiler.Stage, String> sources = new EnumMap<>(ShaderCompiler.Stage.class);
                 try {
                 if (packRoot == null) {
@@ -184,6 +187,14 @@ public final class ShaderCorpus {
             compiler.destroy();
         }
         return new Report(archive.getFileName().toString(), converted, failures);
+    }
+
+    private static final java.util.regex.Pattern PROGRAM_NAME = java.util.regex.Pattern.compile(
+            "^(?:gbuffers_\\w+|composite\\d*|deferred\\d*|prepare\\d*|shadow(?:comp\\d*)?|final|begin\\d*"
+                    + "|dh_\\w+|setup\\d*|clrwl_\\w+)$");
+
+    private static boolean isProgram(String name) {
+        return PROGRAM_NAME.matcher(name).matches();
     }
 
     private static String packRoot(Map<String, String> files) {
