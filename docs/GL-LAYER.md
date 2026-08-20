@@ -290,11 +290,15 @@ Two things stood between a black window and that frame, and both were one line:
 
 What it does not draw yet is text. The glyphs reach the layer, `-PdumpTexture`
 shows the font atlas holding two of them, and the text shader discards anything
-with no alpha to sample, so the labels are absent rather than wrong. Longer runs
-also report image-layout mismatches between a texture used as a render target
-and the same texture sampled a frame later: the layout is tracked on the CPU
-while the barrier executes on the GPU, and with frames in flight the two drift.
-Both are open.
+with no alpha to sample, so the labels are absent rather than wrong. A run of the
+menus is otherwise clean: the validation layer reports nothing across a boot to
+the title screen.
+
+Two things about the font atlas are known and neither explains it on its own.
+`glTexImage2D` is called once per mipmap level and each call used to resize the
+image to that level, which left later uploads outside the recorded bounds; that
+is fixed. Uploads above level zero are still dropped, since the images carry one
+level. The glyphs that do arrive land, and the atlas still holds two of them.
 
 ## Testing without a GPU
 
