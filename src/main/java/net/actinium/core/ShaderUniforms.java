@@ -9,7 +9,33 @@ public final class ShaderUniforms {
 
     private static final Map<String, String> ATTRIBUTES = new LinkedHashMap<>();
 
+    private static final Map<String, String> SAMPLERS = new LinkedHashMap<>();
+
     static {
+        for (int i = 0; i < 16; i++) {
+            SAMPLERS.put("colortex" + i, "sampler2D");
+        }
+        for (String legacy : new String[]{"gcolor", "gdepth", "gnormal", "composite", "gaux1",
+                "gaux2", "gaux3", "gaux4"}) {
+            SAMPLERS.put(legacy, "sampler2D");
+        }
+        for (int i = 0; i < 3; i++) {
+            SAMPLERS.put("depthtex" + i, "sampler2D");
+        }
+        SAMPLERS.put("dhDepthTex", "sampler2D");
+        SAMPLERS.put("dhDepthTex0", "sampler2D");
+        SAMPLERS.put("dhDepthTex1", "sampler2D");
+        SAMPLERS.put("shadowtex0", "sampler2D");
+        SAMPLERS.put("shadowtex1", "sampler2D");
+        SAMPLERS.put("shadowcolor0", "sampler2D");
+        SAMPLERS.put("shadowcolor1", "sampler2D");
+        SAMPLERS.put("shadow", "sampler2D");
+        SAMPLERS.put("noisetex", "sampler2D");
+        SAMPLERS.put("gtexture", "sampler2D");
+        SAMPLERS.put("lightmap", "sampler2D");
+        SAMPLERS.put("normals", "sampler2D");
+        SAMPLERS.put("specular", "sampler2D");
+
         UNIFORMS.put("BiomeTemp", "float");
         UNIFORMS.put("ModelView", "mat4");
         UNIFORMS.put("ModelViewInverse", "mat4");
@@ -198,6 +224,12 @@ public final class ShaderUniforms {
 
     public static String declarations(String source, boolean vertexStage) {
         StringBuilder out = new StringBuilder();
+        for (Map.Entry<String, String> sampler : SAMPLERS.entrySet()) {
+            if (needed(source, sampler.getKey())) {
+                out.append("uniform ").append(sampler.getValue()).append(' ')
+                        .append(sampler.getKey()).append(";\n");
+            }
+        }
         for (Map.Entry<String, String> uniform : UNIFORMS.entrySet()) {
             if (needed(source, uniform.getKey())) {
                 out.append("uniform ").append(uniform.getValue()).append(' ')
