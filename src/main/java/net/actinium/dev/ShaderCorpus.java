@@ -20,7 +20,10 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public final class ShaderCorpus {
-    public record Failure(String program, String reason) {
+    public record Failure(String program, String reason, boolean packsOwn) {
+        public Failure(String program, String reason) {
+            this(program, reason, false);
+        }
     }
 
     public record Report(String source, int converted, List<Failure> failures) {
@@ -56,8 +59,10 @@ public final class ShaderCorpus {
 
         int failures = 0;
         for (Report report : convertAll(sources)) {
+            long packsOwn = report.failures().stream().filter(Failure::packsOwn).count();
             System.out.println(report.source() + ": " + report.converted() + " of "
-                    + report.total() + " programs converted");
+                    + report.total() + " programs converted, " + packsOwn
+                    + " blocked by symbols the pack never defines");
             for (Failure failure : report.failures()) {
                 System.out.println("  " + failure.program() + ": " + failure.reason());
             }
@@ -170,7 +175,8 @@ public final class ShaderCorpus {
                     }
                     converted++;
                 } catch (RuntimeException e) {
-                    failures.add(new Failure(name, firstProblem(e)));
+                    String reason = firstProblem(e);
+                    failures.add(new Failure(name, reason, undefinedInPack(files, reason)));
                     dump(name, e);
                 }
             }
@@ -298,6 +304,25 @@ public final class ShaderCorpus {
             Files.writeString(target.resolve(name + ".log"), e.getMessage());
         } catch (IOException ignored) {
         }
+    }
+
+    private static final java.util.regex.Pattern MISSING_SYMBOL = java.util.regex.Pattern.compile(
+            "'(\\w+)' : (?:undeclared identifier|no matching overloaded function found)");
+
+    private static boolean undefinedInPack(Map<String, String> files, String reason) {
+        java.util.regex.Matcher named = MISSING_SYMBOL.matcher(reason);
+        if (!named.find()) {
+            return false;
+        }
+        String symbol = named.group(1);
+        java.util.regex.Pattern definition = java.util.regex.Pattern.compile(
+                "\\b" + symbol + "\\b\\s*(?:\\([^;]*\\)\\s*\\{|[;,=\\[])");
+        for (String source : files.values()) {
+            if (definition.matcher(source).find()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String firstProblem(RuntimeException e) {
