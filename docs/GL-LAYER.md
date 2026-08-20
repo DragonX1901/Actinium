@@ -225,9 +225,14 @@ is the check that matters most: 58 programs, vertex and fragment, through includ
 modernisation, patching and shaderc, asserting zero failures. It is what caught duplicate
 `#version` lines from `#moj_import`, `flat` varyings losing their location, and `gl_VertexID`.
 
-Shader packs are a different matter. Complementary Reimagined r5.8.1, taken as a corpus, goes from
-0 to 48 of its 108 programs converting; the rest need Iris, which defines the pack's options,
-resolves its conditional includes and drives the gbuffers/deferred/composite pipeline. Iris and
+Shader packs are a different matter. Eight of the most downloaded ones, 927 programs between them,
+are the corpus: 822 convert, and another 33 fail on symbols the pack itself never defines, like
+Complementary's clrwl_computeFragment, which is called in four files and declared in none. Those
+cannot compile under any loader, so the corpus counts them separately. The 72 that remain are the
+layer's to answer for: storage images whose memory qualifiers do not survive the rewrite, swizzles
+past the end of a vector, and code behind pack options that only exist once shaders.properties is
+read. Even at 822, converting a pack's GLSL is not the same as running the pack; Iris defines the
+options, resolves the conditional includes and drives the gbuffers/deferred/composite pipeline. Iris and
 Oculus are opted out of the redirect in the default config, so no pack reaches this layer in a
 running game. Converting a pack's GLSL is not the same as running the pack, and this does not run
 it.
