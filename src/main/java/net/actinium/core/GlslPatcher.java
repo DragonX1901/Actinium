@@ -18,7 +18,8 @@ public final class GlslPatcher {
     private static final Pattern VERSION =
             Pattern.compile("^[ \\t]*#version[ \\t]+\\d+([ \\t]+\\w+)?[ \\t]*$", Pattern.MULTILINE);
     private static final Pattern UNIFORM = Pattern.compile(
-            "^\\s*(?:layout\\s*\\([^)]*\\)\\s*)?"
+            "^\\s*(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
+                    + "(?:layout\\s*\\([^)]*\\)\\s*)?"
                     + "(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
                     + "uniform\\s+(?:(?:highp|mediump|lowp|readonly|writeonly|coherent|volatile|restrict)\\s+)*"
                     + "(?<type>\\w+)\\s+(?<name>\\w+)\\s*(?<array>\\[\\s*\\d+\\s*])?"
