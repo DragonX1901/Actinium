@@ -270,6 +270,32 @@ Exactly the four that mixin is responsible for, and no others. Removing the whol
 even get that far: the profile dies during startup with
 `IllegalStateException: Unexpected format: 36013`, before the first tick.
 
+## What the renderer draws today
+
+Renderer mode draws Minecraft's menus. The title screen comes off the swapchain
+the right way up, logo, panorama and buttons, on a CPU device with no GPU
+present, captured with `-Pcapture=<file>`.
+
+Two things stood between a black window and that frame, and both were one line:
+
+- **Every triangle was culled.** The viewport is flipped, so clip space keeps
+  the winding it had in OpenGL, and the front face was being inverted on top of
+  that. A triangle drawn through the same entry points with culling disabled
+  came out fine, which is what isolated it.
+- **The flip has to happen once.** Flipping the render target and the swapchain
+  both cancels out; flipping only the pass that reaches the screen leaves the
+  target in the orientation the blit expects. The winding then has to follow the
+  same rule, and it does, per pipeline, because the pipeline key already carries
+  which target it is for.
+
+What it does not draw yet is text. The glyphs reach the layer, `-PdumpTexture`
+shows the font atlas holding two of them, and the text shader discards anything
+with no alpha to sample, so the labels are absent rather than wrong. Longer runs
+also report image-layout mismatches between a texture used as a render target
+and the same texture sampled a frame later: the layout is tracked on the CPU
+while the barrier executes on the GPU, and with frames in flight the two drift.
+Both are open.
+
 ## Testing without a GPU
 
 Everything above checks the layer without drawing anything. The one question that matters most,
