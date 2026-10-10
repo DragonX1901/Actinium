@@ -1,29 +1,33 @@
-# Third-party software shipped with Actinium
+# Third-party software in Actinium
 
-Actinium is MIT licensed. It embeds one component that is not, unmodified and in its own jar.
+Actinium's own code is MIT licensed. The jar also contains the following.
 
-## NeoVulkanMod (VulkanModNeoForge)
+## VulkanMod
 
-- **Version shipped:** 1.0.0, embedded at `META-INF/jarjar/vulkanmod-1.0.0.jar`
+- **Version:** 0.6.7 for Minecraft 1.21.1, ported from Fabric to NeoForge
+- **Source in this repository:** `src/main/java/net/vulkanmod`, `src/main/resources/assets/vulkanmod`
 - **Licence:** LGPL-3.0, full text in [`LICENSE-VulkanMod-LGPL-3.0.txt`](LICENSE-VulkanMod-LGPL-3.0.txt)
-- **Maintainer:** yiyuyan, https://github.com/yiyuyan/VulkanModNeoForge
-- **Authors:** Collateral, commonplace (KSmc_brigade)
-- **Upstream project:** https://github.com/xCollateral/VulkanMod
+- **Author:** Collateral, https://github.com/xCollateral/VulkanMod
 
-This is the Vulkan renderer. Actinium configures it, patches the gaps in its OpenGL emulation,
-and gives it a settings screen. It does not render by itself.
+This is the Vulkan renderer. It is compiled into Actinium rather than shipped as a separate mod,
+and it has been modified: the Fabric entry point, Fabric Rendering API hooks and fluid rendering
+are replaced with their NeoForge equivalents, NeoForge's model data and render stage events are
+wired in, and several defects are fixed. The modified files stay under LGPL-3.0.
 
-The jar is shipped byte for byte as its authors released it, nothing in it is modified, and its
-SHA-256 is pinned in `build.gradle.kts` so a mirror or a re-tagged release cannot change what
-ships under Actinium's name:
+LGPL-3.0 requires that you can rebuild Actinium against your own changes to the renderer. The
+complete source is in this repository and `./gradlew build` produces the jar.
 
-```
-e5efe9dd281415e3e6794ac366302fa5209b2384438730c735b3719d3f43f1ff
-```
+## Fabric Rendering API interfaces
 
-### Replacing it
+- **Source in this repository:** `src/main/java/net/vulkanmod/render/chunk/build/frapi/api`
+- **Licence:** Apache-2.0
+- **Author:** FabricMC, https://github.com/FabricMC/fabric
 
-LGPL-3.0 requires that you can run Actinium against your own build of the renderer. Put a
-`vulkanmod` jar with a version of 1.0.0 or higher in your `mods` folder: FML loads the highest
-version it finds for a mod id, so an installed copy takes precedence over the embedded one and
-nothing here has to be rebuilt.
+The interfaces VulkanMod's chunk builder is written against, relocated into the renderer's own
+package so they cannot clash with a Fabric API port installed alongside.
+
+## LWJGL (Vulkan, VMA, shaderc bindings)
+
+- **Shipped at:** `META-INF/jarjar/lwjgl-{vulkan,vma,shaderc}-3.3.3*.jar`, unmodified apart from
+  a manifest entry that tells NeoForge to load them as libraries
+- **Licence:** BSD-3-Clause, https://www.lwjgl.org/license

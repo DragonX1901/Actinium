@@ -1,9 +1,7 @@
 package net.actinium.client.gui;
 
-import net.actinium.ActiniumClient;
-import net.actinium.compat.VulkanModConfig;
-import net.actinium.core.FrameRenderer;
 import net.minecraft.client.Minecraft;
+import net.vulkanmod.vulkan.Renderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,14 +21,7 @@ public final class ActiniumSettingsApplier {
         }
 
         if (flags.contains(OptionFlag.REQUIRES_SWAPCHAIN_RECREATE)) {
-            FrameRenderer renderer = ActiniumClient.renderer();
-            if (renderer != null) {
-                renderer.resize(minecraft.getWindow().getWidth(),
-                        minecraft.getWindow().getHeight(),
-                        ActiniumOptions.get().vsync);
-            } else {
-                VulkanModConfig.get().scheduleSwapChainUpdate();
-            }
+            Renderer.scheduleSwapChainUpdate();
         }
 
         if (flags.contains(OptionFlag.REQUIRES_RENDERER_RELOAD) && minecraft.levelRenderer != null) {

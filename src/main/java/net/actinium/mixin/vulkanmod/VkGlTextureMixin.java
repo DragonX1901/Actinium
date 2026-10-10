@@ -5,6 +5,7 @@ import net.actinium.interop.GLPixelConverter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -12,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 
-@Mixin(targets = {"net.vulkanmod.gl.VkGlTexture", "net.vulkanmod.gl.GlTexture"}, remap = false)
+@Mixin(targets = "net.vulkanmod.gl.VkGlTexture", remap = false)
 public abstract class VkGlTextureMixin {
     @Inject(method = "bindTexture(I)V", at = @At("HEAD"), remap = false, require = 0)
     private static void actinium$createOnBind(int id, CallbackInfo ci) {
@@ -57,8 +58,14 @@ public abstract class VkGlTextureMixin {
             return;
         }
         Object texture = VulkanModTextures.boundTexture();
-        if (texture != null) {
-            net.actinium.gl.VkImages.generateMipmaps(VulkanModTextures.imageOf(texture));
+        if (texture == null) {
+            return;
+        }
+        Object image = VulkanModTextures.imageOf(texture);
+        if (VulkanModTextures.isAttachedToFramebuffer(net.vulkanmod.gl.VkGlTexture.getBoundTextureId())) {
+            net.actinium.gl.VkImages.generateMipmapsInFrame(image);
+        } else {
+            net.actinium.gl.VkImages.generateMipmaps(image);
         }
     }
 
@@ -78,11 +85,24 @@ public abstract class VkGlTextureMixin {
     }
 
     @Inject(method = "setMaxLevel", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
-    private void actinium$ignoreNegativeMaxLevel(int level, CallbackInfo ci) {
+    private void actinium$guardMaxLevel(int level, CallbackInfo ci) {
         if (level < 0) {
+            ci.cancel();
+            return;
+        }
+        net.vulkanmod.gl.VkGlTexture texture = (net.vulkanmod.gl.VkGlTexture) (Object) this;
+        if (texture.getVulkanImage() != null && VulkanModTextures.isAttachedToFramebuffer(texture.id)) {
+            if (!actinium$reportedAttachedLevels) {
+                actinium$reportedAttachedLevels = true;
+                ACTINIUM$TEXTURE_LOGGER.info("Kept the level count of a texture that is attached to a framebuffer. "
+                        + "The backend changes it by allocating a new image, which would throw away what was drawn "
+                        + "into the old one; OpenGL never reallocates for GL_TEXTURE_MAX_LEVEL. Level 0 is sampled.");
+            }
             ci.cancel();
         }
     }
+
+    private static boolean actinium$reportedAttachedLevels;
 
     @Inject(method = "setMaxLod", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void actinium$ignoreNegativeMaxLod(int level, CallbackInfo ci) {
@@ -188,5 +208,15 @@ public abstract class VkGlTextureMixin {
             int target, int level, int xOffset, int yOffset,
             int width, int height, int format, int type, long pixels) {
         return GLPixelConverter.toRGBA8(bufPixels, bufWidth, bufHeight, format, type);
+    }
+
+    @ModifyArg(
+            method = "texSubImage2D(IIIIIIIIJ)V",
+            at = @At(value = "INVOKE",
+                     target = "uploadSubImage(IIIIIILjava/nio/ByteBuffer;)V"),
+            index = 5,
+            remap = false)
+    private static int actinium$uploadConvertedAsRGBA(int format) {
+        return net.vulkanmod.gl.VkGlBuffer.getPixelUnpackBufferBound() == null ? GLPixelConverter.GL_RGBA : format;
     }
 }

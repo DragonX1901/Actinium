@@ -11,9 +11,6 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger("Actinium/Mixins");
 
-    private static final String RENDERER_STUB = "net.vulkanmod.mixin.compatibility.gl.GL11M";
-    private static final String COMPATIBILITY_PACKAGE = "net.actinium.mixin.vulkanmod.";
-
     private static final String STACK_SIZE_PROPERTY = "org.lwjgl.system.stackSize";
     private static final String STACK_SIZE_KB = "1024";
 
@@ -56,39 +53,8 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
         return null;
     }
 
-    private static final java.util.Set<String> RENDERER_MIXINS = java.util.Set.of(
-            "net.actinium.mixin.client.WindowMixin",
-            "net.actinium.mixin.client.RenderSystemMixin",
-            "net.actinium.mixin.renderer.RenderStateMixin",
-            "net.actinium.mixin.renderer.TextureMixin",
-            "net.actinium.mixin.renderer.GeometryMixin",
-            "net.actinium.mixin.renderer.ShaderMixin",
-            "net.actinium.mixin.renderer.FramebufferMixin",
-            "net.actinium.mixin.renderer.BooleanStateRendererMixin");
-
-    private static final java.util.Set<String> COMPATIBILITY_ONLY = java.util.Set.of(
-            "net.actinium.mixin.GlStateManagerSafetyNet",
-            "net.actinium.mixin.GlBridgeMixin",
-            "net.actinium.mixin.GlBridgeFrameMixin");
-
-    public static boolean rendererMode() {
-        return Boolean.getBoolean("actinium.renderer");
-    }
-
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        if (RENDERER_MIXINS.contains(mixinClassName)) {
-            return rendererMode();
-        }
-        if (COMPATIBILITY_ONLY.contains(mixinClassName)) {
-            return !rendererMode();
-        }
-        if ("net.actinium.mixin.lwjgl.GL11QueryMixin".equals(mixinClassName)) {
-            return classExists(RENDERER_STUB);
-        }
-        if (mixinClassName.startsWith(COMPATIBILITY_PACKAGE)) {
-            return classExists(targetClassName);
-        }
         return true;
     }
 
@@ -129,13 +95,6 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
             LOGGER.warn("Could not stop the loading screen repainting. This launch may end "
                     + "without a crash report; the next one will not.", e);
         }
-    }
-
-    private static boolean classExists(String name) {
-        String resource = name.replace('.', '/') + ".class";
-        ClassLoader loader = ActiniumMixinPlugin.class.getClassLoader();
-        return loader.getResource(resource) != null
-                || ClassLoader.getSystemResource(resource) != null;
     }
 
     @Override

@@ -1,5 +1,11 @@
 package net.actinium.gl;
 
+import net.vulkanmod.gl.VkGlFramebuffer;
+import net.vulkanmod.vulkan.Renderer;
+import net.vulkanmod.vulkan.framebuffer.Framebuffer;
+import net.vulkanmod.vulkan.framebuffer.RenderPass;
+import net.vulkanmod.vulkan.texture.ImageUtil;
+import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VK10;
 import org.lwjgl.vulkan.VkCommandBuffer;
@@ -130,6 +136,9 @@ public final class VkImages {
                 return;
             }
 
+            boolean resume = oldImage instanceof VulkanImage vulkanImage && vulkanImage.isUsedInFrameSegment()
+                    && Renderer.getInstance().flushFrame();
+
             Object commandBuffer = getOrStartCommandBuffer.invoke(uploadHelper);
             VkCommandBuffer handle = (VkCommandBuffer) getHandle.invoke(commandBuffer);
             int w = intField(width, oldImage);
@@ -150,6 +159,10 @@ public final class VkImages {
                     region.extent().set(Math.max(1, w >> level), Math.max(1, h >> level), 1);
                 }
                 VK10.vkCmdCopyImage(handle, src, TRANSFER_SRC, dst, TRANSFER_DST, regions);
+            } finally {
+                if (resume) {
+                    Renderer.getInstance().resumeAfterFlush();
+                }
             }
 
             UPLOADED.add(dst);
@@ -200,6 +213,30 @@ public final class VkImages {
         }
     }
 
+    public static boolean generateMipmapsInFrame(Object image) {
+        if (!(image instanceof VulkanImage vulkanImage) || vulkanImage.mipLevels < 2 || !Renderer.isRecording()) {
+            return false;
+        }
+
+        Renderer renderer = Renderer.getInstance();
+        RenderPass renderPass = renderer.getBoundRenderPass();
+        Framebuffer framebuffer = renderer.getBoundFramebuffer();
+        VkGlFramebuffer glFramebuffer = VkGlFramebuffer.getBoundFramebuffer();
+        renderer.endRenderPass();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            ImageUtil.recordMipmaps(stack, Renderer.getCommandBuffer(), vulkanImage);
+        }
+
+        if (glFramebuffer != null) {
+            VkGlFramebuffer.beginRendering(glFramebuffer);
+        } else if (framebuffer != null && framebuffer == renderer.getMainPass().getMainFramebuffer()) {
+            renderer.getMainPass().rebindMainTarget();
+        } else if (framebuffer != null && renderPass != null) {
+            renderer.beginRenderPass(renderPass, framebuffer);
+        }
+        return true;
+    }
+
     public static boolean downloadLevel(Object image, int level, long dstPtr) {
         if (image == null || dstPtr == 0L || !resolve()) {
             return false;
@@ -219,7 +256,12 @@ public final class VkImages {
                 return false;
             }
 
-            flushUploads();
+            boolean resume = false;
+            if (image instanceof VulkanImage vulkanImage) {
+                resume = Renderer.getInstance().prepareImageAccess(vulkanImage);
+            } else {
+                flushUploads();
+            }
 
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 org.lwjgl.vulkan.VkBufferCreateInfo info = org.lwjgl.vulkan.VkBufferCreateInfo
@@ -245,7 +287,7 @@ public final class VkImages {
                     int previous = (Integer) getCurrentLayout.invoke(image);
                     transition.invoke(null, stack, handle, image, TRANSFER_SRC);
                     copyImageToBufferCmd.invoke(null, stack, handle, pBuffer.get(0),
-                            handle(image), level, w, h, 0, 0, 0, 0, 0);
+                            handle(image), level, w, h, 0, 0, 0L, 0, 0);
                     transition.invoke(null, stack, handle, image, previous);
                     long fence = (Long) submitCommands.invoke(graphicsQueue(), commandBuffer);
                     VK10.vkWaitForFences(device(), fence, true, Long.MAX_VALUE);
@@ -261,6 +303,10 @@ public final class VkImages {
                 } finally {
                     org.lwjgl.util.vma.Vma.vmaDestroyBuffer(allocator, pBuffer.get(0),
                             pAllocation.get(0));
+                }
+            } finally {
+                if (resume) {
+                    Renderer.getInstance().resumeAfterFlush();
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -350,7 +396,7 @@ public final class VkImages {
             generateMipmaps = imageUtil.getMethod("generateMipmaps", image);
             copyImageToBufferCmd = imageUtil.getMethod("copyImageToBufferCmd",
                     MemoryStack.class, VkCommandBuffer.class, long.class, long.class,
-                    int.class, int.class, int.class, int.class, int.class, int.class,
+                    int.class, int.class, int.class, int.class, int.class, long.class,
                     int.class, int.class);
 
             Class<?> deviceManager = Class.forName("net.vulkanmod.vulkan.device.DeviceManager");

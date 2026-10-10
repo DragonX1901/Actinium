@@ -11,6 +11,7 @@ public final class ActiniumOptions {
     }
 
     public boolean interopEnabled = false;
+    public boolean glContextBridge = true;
     public ActiniumClient.InteropMode interopMode = ActiniumClient.InteropMode.OFF;
 
     public boolean vsync = true;
@@ -33,6 +34,7 @@ public final class ActiniumOptions {
             return;
         }
         interopEnabled = ActiniumConfig.interopEnabled.get();
+        glContextBridge = ActiniumConfig.glContextBridge.get();
         interopMode = ActiniumConfig.interopMode.get();
         validationLayers = ActiniumConfig.validationLayers.get();
         shaderDebugInfo = ActiniumConfig.shaderDebugInfo.get();
@@ -44,6 +46,7 @@ public final class ActiniumOptions {
             return;
         }
         ActiniumConfig.interopEnabled.set(interopEnabled);
+        ActiniumConfig.glContextBridge.set(glContextBridge);
         ActiniumConfig.interopMode.set(interopMode);
         ActiniumConfig.validationLayers.set(validationLayers);
         ActiniumConfig.shaderDebugInfo.set(shaderDebugInfo);

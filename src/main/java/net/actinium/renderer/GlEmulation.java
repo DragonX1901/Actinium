@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class GlEmulation {
+public final class  GlEmulation {
     public static final int GL_COMPILE_STATUS = 0x8B81;
     public static final int GL_LINK_STATUS = 0x8B82;
     public static final int GL_VALIDATE_STATUS = 0x8B83;

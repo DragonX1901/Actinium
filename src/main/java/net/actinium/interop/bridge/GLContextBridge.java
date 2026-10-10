@@ -1,11 +1,15 @@
 package net.actinium.interop.bridge;
 
+import net.neoforged.fml.loading.FMLPaths;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GLCapabilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class GLContextBridge {
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/GLBridge");
@@ -50,6 +54,9 @@ public final class GLContextBridge {
             GLFW.glfwMakeContextCurrent(contextWindow);
             capabilities = GL.createCapabilities();
             active = true;
+            if (setting("glTextureRouting", true)) {
+                GLRouter.install(capabilities);
+            }
 
             LOGGER.info("OpenGL bridge context ready: {} {} ({})",
                     safeGet(GL11.GL_VENDOR), safeGet(GL11.GL_RENDERER), safeGet(GL11.GL_VERSION));
@@ -109,6 +116,29 @@ public final class GLContextBridge {
         }
         capabilities = null;
         active = false;
+    }
+
+    public static boolean setting(String key, boolean fallback) {
+        String property = System.getProperty("actinium." + key);
+        if (property != null) {
+            return Boolean.parseBoolean(property);
+        }
+
+        try {
+            Path file = FMLPaths.CONFIGDIR.get().resolve("actinium-client.toml");
+            if (!Files.exists(file)) {
+                return fallback;
+            }
+            for (String line : Files.readAllLines(file)) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith(key + " ") || trimmed.startsWith(key + "=")) {
+                    return trimmed.endsWith("true");
+                }
+            }
+        } catch (Exception | LinkageError e) {
+            LOGGER.debug("Could not read {}; using {}", key, fallback, e);
+        }
+        return fallback;
     }
 
     private static String safeGet(int name) {

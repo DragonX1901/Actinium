@@ -44,6 +44,15 @@ public final class ActiniumConfig {
                     "Read at window creation, so a change needs a restart.")
             .define("compat.glContextBridge", true);
 
+    public static final ModConfigSpec.BooleanValue glTextureRouting = BUILDER
+            .comment("Send the 2D texture, clear and error calls that mods make straight to LWJGL's",
+                    "OpenGL bindings to the Vulkan renderer, where GlStateManager's calls already go.",
+                    "Without it those textures live in the hidden context, and their names collide",
+                    "with the renderer's own, so a mod binding one samples some unrelated image.",
+                    "Other texture targets stay in the hidden context. Needs compat.glContextBridge.",
+                    "Read when that context is created, so a change needs a restart.")
+            .define("compat.glTextureRouting", true);
+
     public static final ModConfigSpec.BooleanValue validationLayers = BUILDER
             .comment("Enable Vulkan validation layers. Catches API misuse; costs roughly 30% CPU frame time.",
                     "Read at window creation: set -Dactinium.validation to change it for the current launch.")

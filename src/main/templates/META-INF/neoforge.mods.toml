@@ -9,12 +9,15 @@ displayName = "${mod_name}"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 logoFile = "logo.png"
-credits = "Vulkan rendering by VulkanModNeoForge (yiyuyan), ported from VulkanMod by xCollateral"
+credits = "Vulkan renderer ported from VulkanMod 0.6.7 by xCollateral (LGPL-3.0)"
 
 # The Window mixin has to apply before Minecraft creates its OpenGL context, so this config
 # must be declared here rather than discovered later.
 [[mixins]]
 config = "${mod_id}.mixins.json"
+
+[[mixins]]
+config = "vulkanmod.mixins.json"
 
 [[accessTransformers]]
 file = "META-INF/accesstransformer.cfg"
@@ -33,19 +36,34 @@ versionRange = "${minecraft_version_range}"
 ordering = "NONE"
 side = "CLIENT"
 
-# Optional, because Actinium runs two ways. In compatibility mode it configures and patches
-# VulkanMod's renderer, and without VulkanMod present every compatibility mixin is skipped and
-# the settings screen has nothing to bind to. In renderer mode (-Dactinium.renderer=true) it
-# creates the Vulkan device itself and VulkanMod must not be installed at all: two mods cannot
-# both own the window surface.
 [[dependencies."${mod_id}"]]
 modId = "vulkanmod"
-type = "optional"
-reason = "Compatibility mode patches VulkanMod's renderer. Renderer mode replaces it."
-versionRange = "[0.5,)"
-ordering = "AFTER"
+type = "incompatible"
+reason = "Actinium already includes the VulkanMod renderer. Remove the separate VulkanMod jar."
+versionRange = "*"
+ordering = "NONE"
 side = "CLIENT"
 
-# Shader pack mods drive the whole pipeline through OpenGL and expect a real context. They are
-# incompatible with a Vulkan backend regardless of Actinium, so the declaration belongs on
-# VulkanMod rather than here.
+[[dependencies."${mod_id}"]]
+modId = "iris"
+type = "incompatible"
+reason = "Iris renders through OpenGL; Actinium renders through Vulkan."
+versionRange = "*"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies."${mod_id}"]]
+modId = "sodium"
+type = "incompatible"
+reason = "Sodium replaces the chunk renderer that Actinium's Vulkan renderer also replaces."
+versionRange = "*"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies."${mod_id}"]]
+modId = "embeddium"
+type = "incompatible"
+reason = "Embeddium replaces the chunk renderer that Actinium's Vulkan renderer also replaces."
+versionRange = "*"
+ordering = "NONE"
+side = "CLIENT"

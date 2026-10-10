@@ -183,14 +183,12 @@ public final class GLPixelConverter {
             }
             case GL_UNSIGNED_INT_8_8_8_8 -> {
                 int v = src.getInt(at);
-                out.put((byte) (v >>> 24)).put((byte) (v >>> 16))
-                        .put((byte) (v >>> 8)).put((byte) v);
+                putOrdered(out, format, (byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v);
                 return true;
             }
             case GL_UNSIGNED_INT_8_8_8_8_REV -> {
                 int v = src.getInt(at);
-                out.put((byte) v).put((byte) (v >>> 8))
-                        .put((byte) (v >>> 16)).put((byte) (v >>> 24));
+                putOrdered(out, format, (byte) v, (byte) (v >>> 8), (byte) (v >>> 16), (byte) (v >>> 24));
                 return true;
             }
             default -> {
@@ -212,7 +210,11 @@ public final class GLPixelConverter {
         byte c1 = count > 1 ? component(src, at + size, size, type) : 0;
         byte c2 = count > 2 ? component(src, at + size * 2, size, type) : 0;
         byte c3 = count > 3 ? component(src, at + size * 3, size, type) : (byte) 0xFF;
+        putOrdered(out, format, c0, c1, c2, c3);
+        return true;
+    }
 
+    private static void putOrdered(ByteBuffer out, int format, byte c0, byte c1, byte c2, byte c3) {
         switch (format) {
             case GL_RED, GL_RED_INTEGER -> out.put(c0).put((byte) 0).put((byte) 0).put((byte) 0xFF);
             case GL_GREEN -> out.put((byte) 0).put(c0).put((byte) 0).put((byte) 0xFF);
@@ -227,7 +229,6 @@ public final class GLPixelConverter {
             case GL_BGRA -> out.put(c2).put(c1).put(c0).put(c3);
             default -> out.put(c0).put(c1).put(c2).put(c3);
         }
-        return true;
     }
 
     private static byte component(ByteBuffer src, int at, int size, int type) {

@@ -1,6 +1,5 @@
 package net.actinium;
 
-import net.actinium.compat.VulkanModConfig;
 import net.actinium.interop.ActiniumGL;
 import net.actinium.interop.GLRedirectTransformer;
 import net.neoforged.api.distmarker.Dist;
@@ -9,6 +8,8 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.vulkanmod.Initializer;
+import net.vulkanmod.vulkan.device.DeviceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,13 +25,11 @@ public class Actinium {
     }
 
     private void onClientSetup(FMLClientSetupEvent event) {
-        reportBackend();
+        LOGGER.info("Rendering through the built-in Vulkan renderer (VulkanMod {}) on {}",
+                Initializer.getVersion(),
+                DeviceManager.device != null ? DeviceManager.device.deviceName : "an unknown device");
 
         if (!ActiniumClient.isActive()) {
-            if (!VulkanModConfig.get().isPresent()) {
-                LOGGER.error("No Vulkan backend is active. Install VulkanMod, or enable "
-                        + "Actinium's own backend mixins in actinium.mixins.json.");
-            }
             return;
         }
 
@@ -44,14 +43,5 @@ public class Actinium {
                 GLRedirectTransformer.rewrittenCallCount(),
                 GLRedirectTransformer.rewrittenClassCount(),
                 ActiniumGL.unsupportedCallCount());
-    }
-
-    private static void reportBackend() {
-        VulkanModConfig vulkanMod = VulkanModConfig.get();
-        if (vulkanMod.isPresent()) {
-            LOGGER.info("Renderer backend: VulkanMod. Settings screen is bound to its config.");
-        } else {
-            LOGGER.warn("VulkanMod not found. Renderer settings will be shown but disabled.");
-        }
     }
 }

@@ -1,0 +1,99 @@
+package net.vulkanmod.mixin.compatibility;
+
+import com.mojang.blaze3d.pipeline.MainTarget;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat.Mode;
+import java.util.List;
+import java.util.function.IntSupplier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.EffectInstance;
+import net.minecraft.client.renderer.PostPass;
+import net.vulkanmod.vulkan.Renderer;
+import net.vulkanmod.vulkan.VRenderSystem;
+import org.joml.Matrix4f;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+
+@Mixin(PostPass.class)
+public class PostPassM {
+   @Shadow
+   @Final
+   public RenderTarget inTarget;
+   @Shadow
+   @Final
+   public RenderTarget outTarget;
+   @Shadow
+   @Final
+   private EffectInstance effect;
+   @Shadow
+   @Final
+   private List<IntSupplier> auxAssets;
+   @Shadow
+   @Final
+   private List<String> auxNames;
+   @Shadow
+   @Final
+   private List<Integer> auxWidths;
+   @Shadow
+   @Final
+   private List<Integer> auxHeights;
+   @Shadow
+   private Matrix4f shaderOrthoMatrix;
+
+   @Overwrite
+   public void process(float f) {
+      this.inTarget.unbindWrite();
+      float g = this.outTarget.width;
+      float h = this.outTarget.height;
+      RenderSystem.viewport(0, 0, (int)g, (int)h);
+      this.effect.setSampler("DiffuseSampler", this.inTarget::getColorTextureId);
+      if (this.inTarget instanceof MainTarget) {
+         this.inTarget.bindRead();
+      }
+
+      for (int i = 0; i < this.auxAssets.size(); i++) {
+         this.effect.setSampler(this.auxNames.get(i), this.auxAssets.get(i));
+         this.effect.safeGetUniform("AuxSize" + i).set((float)this.auxWidths.get(i).intValue(), (float)this.auxHeights.get(i).intValue());
+      }
+
+      this.effect.safeGetUniform("ProjMat").set(this.shaderOrthoMatrix);
+      this.effect.safeGetUniform("InSize").set((float)this.inTarget.width, (float)this.inTarget.height);
+      this.effect.safeGetUniform("OutSize").set(g, h);
+      this.effect.safeGetUniform("Time").set(f);
+      Minecraft minecraft = Minecraft.getInstance();
+      this.effect.safeGetUniform("ScreenSize").set((float)minecraft.getWindow().getWidth(), (float)minecraft.getWindow().getHeight());
+      this.outTarget.clear(Minecraft.ON_OSX);
+      this.outTarget.bindWrite(false);
+      VRenderSystem.disableCull();
+      VRenderSystem.depthFunc(519);
+      VRenderSystem.setPrimitiveTopologyGL(4);
+      Renderer.setInvertedViewport(0, 0, this.outTarget.width, this.outTarget.height);
+      Renderer.resetScissor();
+      this.effect.apply();
+      BufferBuilder bufferBuilder = Tesselator.getInstance().begin(Mode.QUADS, DefaultVertexFormat.POSITION);
+      bufferBuilder.addVertex(0.0F, 0.0F, 500.0F);
+      bufferBuilder.addVertex(g, 0.0F, 500.0F);
+      bufferBuilder.addVertex(g, h, 500.0F);
+      bufferBuilder.addVertex(0.0F, h, 500.0F);
+      BufferUploader.draw(bufferBuilder.buildOrThrow());
+      RenderSystem.depthFunc(515);
+      this.effect.clear();
+      this.outTarget.unbindWrite();
+      this.inTarget.unbindRead();
+
+      for (Object object : this.auxAssets) {
+         if (object instanceof RenderTarget) {
+            ((RenderTarget)object).unbindRead();
+         }
+      }
+
+      VRenderSystem.enableCull();
+   }
+}

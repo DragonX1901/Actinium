@@ -3,22 +3,12 @@
   "minVersion": "0.8.5",
   "package": "net.actinium.mixin",
   "compatibilityLevel": "JAVA_21",
-  "refmap": "actinium.refmap.json",
   "client": [
-    "client.WindowMixin",
-    "client.RenderSystemMixin",
-    "renderer.RenderStateMixin",
-    "renderer.TextureMixin",
-    "renderer.GeometryMixin",
-    "renderer.ShaderMixin",
-    "renderer.FramebufferMixin",
-    "renderer.BooleanStateRendererMixin",
     "GlBridgeMixin",
     "GlBridgeFrameMixin",
     "GlStateManagerLimitsMixin",
     "GlStateManagerSafetyNet",
     "vulkanmod.GlUtilMixin",
-    "vulkanmod.SPIRVUtilsMixin",
     "vulkanmod.RendererViewportMixin",
     "vulkanmod.VkGlFramebufferMixin",
     "vulkanmod.VkGlTextureMixin",
@@ -27,8 +17,7 @@
     "vulkanmod.FramebufferMixin",
     "vulkanmod.VkGlBufferMixin",
     "vulkanmod.VkGlProgramMixin",
-    "vulkanmod.VkGlRenderbufferMixin",
-    "lwjgl.GL11QueryMixin"
+    "vulkanmod.VkGlRenderbufferMixin"
   ],
   "injectors": {
     "defaultRequire": 1

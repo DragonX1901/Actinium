@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(targets = {"net.vulkanmod.gl.VkGlRenderbuffer", "net.vulkanmod.gl.GlRenderbuffer"}, remap = false)
+@Mixin(targets = "net.vulkanmod.gl.VkGlRenderbuffer", remap = false)
 public abstract class VkGlRenderbufferMixin {
     @Inject(method = "bindRenderbuffer", at = @At("HEAD"), remap = false, require = 0)
     private static void actinium$createOnBind(int target, int id, CallbackInfo ci) {

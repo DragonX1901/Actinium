@@ -85,9 +85,8 @@ public abstract class VulkanImageMixin {
 
     private static int actinium$doubleFrees;
 
-    @Inject(method = "createImage", at = @At("TAIL"), remap = false, require = 0)
-    private void actinium$recordCreatedHandle(int mipLevels, int width, int height, int format,
-                                              int usage, CallbackInfo ci) {
+    @Inject(method = "createImage()V", at = @At("TAIL"), remap = false, require = 0)
+    private void actinium$recordCreatedHandle(CallbackInfo ci) {
         long id = handleOf(this);
         if (id != 0L && id != -1L) {
             ACTINIUM$LIVE.add(id);
@@ -95,27 +94,7 @@ public abstract class VulkanImageMixin {
         }
     }
 
-    @org.spongepowered.asm.mixin.injection.ModifyVariable(
-            method = "uploadSubTextureAsync(IIIIIIIIJ)V", at = @At("HEAD"), index = 8,
-            argsOnly = true, remap = false, require = 0)
-    private int actinium$rowLengthFromPointerUpload(int unpackRowLength, int mipLevel, int width,
-                                                    int height, int xOffset, int yOffset,
-                                                    int unpackSkipRows, int unpackSkipPixels,
-                                                    int rowLength, long source) {
-        return unpackRowLength == 0 ? width : unpackRowLength;
-    }
-
-    @org.spongepowered.asm.mixin.injection.ModifyVariable(
-            method = "uploadSubTextureAsync(IIIIIIIILjava/nio/ByteBuffer;)V", at = @At("HEAD"),
-            index = 8, argsOnly = true, remap = false, require = 0)
-    private int actinium$rowLengthFromBufferUpload(int unpackRowLength, int mipLevel, int width,
-                                                   int height, int xOffset, int yOffset,
-                                                   int unpackSkipRows, int unpackSkipPixels,
-                                                   int rowLength, java.nio.ByteBuffer source) {
-        return unpackRowLength == 0 ? width : unpackRowLength;
-    }
-
-    @Inject(method = {"uploadSubTextureAsync(IIIIIIIIJ)V",
+    @Inject(method = {"uploadSubTextureAsync(IIIIIIIIIJ)V",
                       "uploadSubTextureAsync(IIIIIIIILjava/nio/ByteBuffer;)V"},
             at = @At("HEAD"), remap = false, require = 0)
     private void actinium$noteUpload(CallbackInfo ci) {

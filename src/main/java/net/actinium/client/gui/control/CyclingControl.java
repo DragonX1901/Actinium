@@ -8,20 +8,30 @@ import net.minecraft.network.chat.Component;
 
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class CyclingControl<T> implements Control<T> {
-    private final List<T> values;
+    private final Supplier<List<T>> values;
     private final Function<T, Component> labels;
     private final int valueWidth;
 
     public CyclingControl(List<T> values, Function<T, Component> labels) {
-        this.values = List.copyOf(values);
+        this(fixed(values), labels);
+    }
+
+    public CyclingControl(Supplier<List<T>> values, Function<T, Component> labels) {
+        this.values = values;
         this.labels = labels;
         int widest = 0;
-        for (T value : this.values) {
+        for (T value : values.get()) {
             widest = Math.max(widest, Minecraft.getInstance().font.width(labels.apply(value)));
         }
         this.valueWidth = widest + 10;
+    }
+
+    private static <T> Supplier<List<T>> fixed(List<T> values) {
+        List<T> copy = List.copyOf(values);
+        return () -> copy;
     }
 
     public static <E extends Enum<E>> CyclingControl<E> ofEnum(Class<E> type, Function<E, Component> labels) {
@@ -73,12 +83,13 @@ public final class CyclingControl<T> implements Control<T> {
         }
 
         private void step(int delta) {
-            int index = values.indexOf(option.value());
-            if (index < 0) {
-                index = 0;
+            List<T> choices = values.get();
+            if (choices.isEmpty()) {
+                return;
             }
-            int next = Math.floorMod(index + delta, values.size());
-            option.setValue(values.get(next));
+            int index = choices.indexOf(option.value());
+            int next = index < 0 ? 0 : Math.floorMod(index + delta, choices.size());
+            option.setValue(choices.get(next));
         }
 
         @Override

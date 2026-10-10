@@ -1,0 +1,37 @@
+package net.vulkanmod.render.texture;
+
+import net.vulkanmod.vulkan.Synchronization;
+import net.vulkanmod.vulkan.device.DeviceManager;
+import net.vulkanmod.vulkan.queue.CommandPool;
+import net.vulkanmod.vulkan.queue.Queue;
+
+public class ImageUploadHelper {
+   public static final ImageUploadHelper INSTANCE = new ImageUploadHelper();
+   final Queue queue = DeviceManager.getGraphicsQueue();
+   private CommandPool.CommandBuffer currentCmdBuffer;
+
+   public void submitCommands() {
+      this.submitCommands(true);
+   }
+
+   public void submitCommands(boolean useSemaphore) {
+      if (this.currentCmdBuffer != null) {
+         SpriteUpdateUtil.transitionLayouts();
+         this.queue.submitCommands(this.currentCmdBuffer, useSemaphore);
+         Synchronization.INSTANCE.addCommandBuffer(this.currentCmdBuffer, useSemaphore);
+         this.currentCmdBuffer = null;
+      }
+   }
+
+   public CommandPool.CommandBuffer getOrStartCommandBuffer() {
+      if (this.currentCmdBuffer == null) {
+         this.currentCmdBuffer = this.queue.beginCommands();
+      }
+
+      return this.currentCmdBuffer;
+   }
+
+   public CommandPool.CommandBuffer getCommandBuffer() {
+      return this.currentCmdBuffer;
+   }
+}

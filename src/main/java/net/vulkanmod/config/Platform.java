@@ -1,0 +1,106 @@
+package net.vulkanmod.config;
+
+import net.minecraft.Util;
+import net.minecraft.Util.OS;
+import net.vulkanmod.Initializer;
+import org.apache.commons.lang3.SystemUtils;
+import org.lwjgl.glfw.GLFW;
+
+public abstract class Platform {
+   public static final OS OS = Util.getPlatform();
+   private static int activePlat;
+   private static String activeDE;
+
+   public static void init() {
+      activePlat = getSupportedPlat();
+      activeDE = determineDE();
+      GLFW.glfwInitHint(327683, activePlat);
+      Initializer.LOGGER.info("Selecting Platform: {}", getStringFromPlat());
+      Initializer.LOGGER.info("GLFW: {}", GLFW.glfwGetVersionString());
+      GLFW.glfwInit();
+   }
+
+   private static int determineLinuxDisplayServer() {
+      String xdgSessionType = System.getenv("XDG_SESSION_TYPE");
+      if (xdgSessionType == null) {
+         return 393216;
+      }
+
+      return switch (xdgSessionType) {
+         case "wayland" -> Initializer.CONFIG.useWayland ? 393219 : 393220;
+         case "x11" -> 393220;
+         default -> 393216;
+      };
+   }
+
+   private static int getSupportedPlat() {
+      if (SystemUtils.IS_OS_WINDOWS) {
+         return 393217;
+      } else if (SystemUtils.IS_OS_MAC_OSX) {
+         return 393218;
+      } else {
+         return SystemUtils.IS_OS_LINUX ? determineLinuxDisplayServer() : 393216;
+      }
+   }
+
+   private static String getStringFromPlat() {
+      return switch (activePlat) {
+         case 393216 -> "ANDROID";
+         case 393217 -> "WIN32";
+         case 393218 -> "MACOS";
+         case 393219 -> "WAYLAND";
+         case 393220 -> "X11";
+         default -> throw new IllegalStateException("Unexpected value: " + activePlat);
+      };
+   }
+
+   private static String determineDE() {
+      String xdgSessionDesktop = System.getenv("XDG_SESSION_DESKTOP");
+      String xdgCurrentDesktop = System.getenv("XDG_CURRENT_DESKTOP");
+      if (xdgSessionDesktop != null) {
+         return xdgSessionDesktop.toLowerCase();
+      } else {
+         return xdgCurrentDesktop != null ? xdgCurrentDesktop.toLowerCase() : "N/A";
+      }
+   }
+
+   public static boolean isWindows() {
+      return OS == net.minecraft.Util.OS.WINDOWS;
+   }
+
+   public static boolean isLinux() {
+      return OS == net.minecraft.Util.OS.LINUX;
+   }
+
+   public static boolean isMacOS() {
+      return OS == net.minecraft.Util.OS.OSX;
+   }
+
+   public static int getActivePlat() {
+      return activePlat;
+   }
+
+   public static boolean isAndroid() {
+      return activePlat == 393216;
+   }
+
+   public static boolean isWayLand() {
+      return activePlat == 393219;
+   }
+
+   public static boolean isX11() {
+      return activePlat == 393220;
+   }
+
+   public static boolean isGnome() {
+      return activeDE.contains("gnome");
+   }
+
+   public static boolean isWeston() {
+      return activeDE.contains("weston");
+   }
+
+   public static boolean isGeneric() {
+      return activeDE.contains("generic");
+   }
+}

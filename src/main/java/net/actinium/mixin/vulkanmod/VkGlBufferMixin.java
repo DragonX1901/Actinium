@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.nio.ByteBuffer;
 
-@Mixin(targets = {"net.vulkanmod.gl.VkGlBuffer", "net.vulkanmod.gl.GlBuffer"}, remap = false)
+@Mixin(targets = "net.vulkanmod.gl.VkGlBuffer", remap = false)
 public abstract class VkGlBufferMixin {
     @Inject(method = "glBindBuffer", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private static void actinium$bindAnyTarget(int target, int buffer, CallbackInfo ci) {

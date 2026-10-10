@@ -1,25 +1,209 @@
 # Actinium runtime setup
 
-The Vulkan backend is [VulkanModNeoForge](https://github.com/yiyuyan/VulkanModNeoForge)
-(LGPL-3.0) by yiyuyan, which owns the window, the device and the render paths. Actinium ships
-it, configures it, and patches the gaps in its OpenGL emulation.
+The Vulkan renderer is [VulkanMod](https://github.com/xCollateral/VulkanMod) 0.6.7 by
+xCollateral (LGPL-3.0), ported from Fabric to NeoForge and compiled into Actinium under
+`net.vulkanmod`. It owns the window, the device and the render paths. Actinium configures it and
+patches the gaps in its OpenGL emulation.
 
-Installing Actinium is enough. The jar carries the renderer and the LWJGL Vulkan bindings it
-needs, both as ordinary mod files under `META-INF/jarjar`, and FML unpacks them at startup.
+Installing Actinium is enough. The jar carries the renderer and the LWJGL Vulkan, VMA and
+shaderc bindings it needs; the bindings sit under `META-INF/jarjar` with
+`FMLModType: GAMELIBRARY` in their manifests, so FML loads them into the game layer without
+listing them as mods. The mod list shows Actinium and nothing else.
 
-This file records what a working stack looks like and every failure hit getting there.
+This file records what a working stack looks like and every failure hit getting there. Everything
+after [The in-tree port](#the-in-tree-port) was written against the earlier setup, when Actinium
+shipped the VulkanModNeoForge 1.0.0 jar unmodified and relied on its Mixin agent. It is kept
+because the failures it records are still the reason several fixes exist; where it names a class
+that is gone, the table under [Retired pieces](#retired-pieces) says what replaced it.
 
 ## Installing
 
 Drop `actinium-<version>.jar` into `mods`. Nothing else is required.
 
-A `vulkanmod` jar installed separately takes precedence when its version is higher, which is
-how LGPL-3.0's replacement requirement is met. Two things follow from that:
+`neoforge.mods.toml` declares `vulkanmod`, `sodium`, `embeddium` and `iris` incompatible, so a
+second renderer stops the launch with a message instead of a native crash.
 
-- The compatibility fixes name the classes they patch and check for each one, so a renderer
-  release that renames or drops a class loses only the fix that touched it.
-- Every fix declares `require = 0`. A version whose shape has moved on loses that patch instead
-  of taking the game down.
+## The in-tree port
+
+Source: the VulkanMod 0.6.7 build for 1.21.1, decompiled, remapped from intermediary to Mojang
+names and compiled as part of Actinium. Verified on an RTX 3050 Ti under Xvfb with the dev run
+and with the packaged jar from `run-prod/mods`: title screen, world join, terrain, water, sky,
+clouds, hand, HUD, pause menu and the settings screen all render, and Apply rebuilds chunks
+without errors.
+
+### What changed from the Fabric build
+
+| Fabric piece | NeoForge replacement |
+|---|---|
+| `ClientModInitializer` | `Initializer.onPreGlfwInit()`, called from `Minecraft.<init>` before `RenderSystem.initBackendSystem` |
+| Fabric Rendering API | Its interfaces vendored under `render/chunk/build/frapi/api` (Apache-2.0), with blocks emitted through NeoForge's `getRenderTypes`, `ModelData` and `useAmbientOcclusion` |
+| `FluidRenderHandlerRegistry` | `IClientFluidTypeExtensions` and `FluidSpriteCache`, with `renderFluid` overrides honoured |
+| World render events | `ClientHooks.dispatchRenderStage` after each chunk layer |
+| Mod menu options screen | Actinium's Video Settings screen, which carries every VulkanMod option |
+
+### Mixins that cannot apply on NeoForge
+
+LWJGL and JOML are loaded in the boot layer. Mixin only transforms the game layer, so
+VulkanMod's mixins on `GL11`, `GL14`, `GL15`, `GL30` and `Matrix4f` never run. VulkanModNeoForge
+worked around that with a Java agent that showed up as a separate "mod". The port does without:
+
+- The GL calls vanilla makes are redirected one level up, in `GlStateManager` and its
+  `BooleanState`, to VulkanMod's emulation.
+- VulkanMod patched JOML's `setOrtho` and `setPerspective` to produce Vulkan's `[0, 1]` depth
+  range. Without that, anything drawn with an orthographic projection is clipped: the HUD and
+  hotbar disappear and text renders dark. The conversion now happens once, in
+  `VRenderSystem.applyProjectionMatrix` and for the `ProjMat` uniform of legacy shaders.
+- Raw `org.lwjgl.opengl` calls from other mods reach the real OpenGL context that Actinium's
+  bridge keeps current (the "OpenGL context for mods" option, on by default) instead of
+  VulkanMod's stubs, so limit queries return what the driver reports.
+
+The same boot-layer rule bit once more. `GLFWVulkan.glfwCreateWindowSurface` takes a
+`VkInstance`, and the boot-layer GLFW cannot see the game-layer `lwjgl-vulkan`:
+
+```
+java.lang.NoClassDefFoundError: org/lwjgl/vulkan/VkInstance
+  at org.lwjgl.glfw.GLFWVulkan.glfwCreateWindowSurface(GLFWVulkan.java:332)
+  at net.vulkanmod.vulkan.Vulkan.createSurface(Vulkan.java:238)
+```
+
+The dev run never shows it, because there everything is on one classpath. The surface is created
+through `nglfwCreateWindowSurface` with raw addresses instead.
+
+### Failures hit during the port
+
+| Symptom | Cause |
+|---|---|
+| `NullPointerException` in `Uniform.set` on the first frame | The decompiler dropped `(float)` casts, so `set(int, int)` was called where `set(float, float)` was meant. Found with a bytecode diff of every method's calls against the original jar |
+| Chunk sections drawn in the wrong order (found by the same diff, before it showed on screen) | The decompiler turned `iterator(reverse)` loops into forward for-each loops |
+| `SIGSEGV` in `libshaderc` compiling the first shader | The include callback built paths from a `union:` URI and returned stack memory to native code after the frame was popped. Rewritten to read includes from the classpath into heap memory owned by the result |
+| "Unable to find queue family with present support" on a hybrid laptop | A GPU that cannot present to the window aborted device selection; it is now skipped with a warning |
+| Redirect and local-capture failures on `ShaderInstance`, `EffectInstance`, `BakedQuad` and `ParticleEngine` | NeoForge adds constructor overloads and parameters; the injection points name the NeoForge signatures |
+| `terrain_earlyZ` rejected as a resource path | Resource paths must be lowercase; renamed `terrain_early_z` |
+
+### Occlusion culling
+
+`net.vulkanmod.render.chunk.cull.OcclusionCuller`, with two compute shaders under
+`assets/vulkanmod/shaders/compute`. Two-phase, all on the graphics queue, in the frame being
+drawn:
+
+1. While the opaque layers are recorded, each section's draw commands go into one of two ranges
+   of the indirect buffer. Sections the previous results marked visible are drawn straight away.
+   The rest are recorded but not drawn.
+2. After the last opaque layer the render pass ends. `hiz_reduce.comp` builds a max-depth
+   pyramid from the depth buffer, four mip levels per dispatch through shared memory, so a
+   1080p pyramid takes three dispatches.
+3. `occlusion_cull.comp` projects every section's box, picks the pyramid level where the box
+   covers at most two texels a side, and compares its nearest depth with the farthest depth
+   there. Visible sections from the held-back range are compacted into a second buffer with a
+   per-batch count; translucent and tripwire commands have their instance count set in place.
+4. The main pass resumes with `LOAD` and the held-back batches are drawn with
+   `vkCmdDrawIndexedIndirectCount`, so a batch with nothing visible costs one empty draw.
+
+A bit per command comes back to the CPU and decides, `frameQueueSize` frames later, which
+sections go into the early range and which entities and block entities to skip. Only results
+from the latest readback count, so a section that has just come into view is never treated as
+hidden.
+
+Checked by rendering the same views with the feature on and off and diffing the screenshots:
+terrain is identical, the only differing pixels are mobs that moved between runs. The Khronos
+validation layer reports nothing for the new passes.
+
+| View, RTX 3050 Ti, render distance 32 | Geometry hidden | World pass on | World pass off |
+|---|---|---|---|
+| Ground level, birch forest, 854×480 | 70% | 2.6 ms | 4.9 ms |
+| Ground level, birch forest, 1080p | 70% | 5.6 ms | 8.6 ms |
+| Spectator inside stone, caves visible, 1080p | 38% | 9.1 ms | 12.3 ms |
+
+Those are GPU times from timestamp queries. A laptop GPU that is not fully loaded clocks down,
+so at low resolution in a view where little is hidden the numbers get noisy and the two modes
+come out about even. The F3 screen shows the GPU frame time and how many sections are hidden.
+
+What the feature needed from the rest of the renderer:
+
+- The indirect buffers moved from host memory to device-local, host-visible memory. With
+  commands in system RAM the GPU fetched every draw over PCIe, and the opaque pass took the same
+  time whether or not a third of its draws had an instance count of zero.
+- `drawIndirectCount` is enabled when the device has it. LWJGL's typed `pNext(struct)` setter
+  prepends, and overwrites the struct's own `pNext`, so the 1.2 feature struct has to be linked
+  after `VkDeviceCreateInfo.pNext` is set or it silently drops out of the chain.
+- Reading per-command results back from host-coherent memory cost 0.9 ms a frame; uncached
+  reads are slow. The shader now packs one bit per command and the CPU copies the words out in
+  one go.
+
+### Chunk building and the render thread
+
+Measured with a full rebuild (F3+A) at render distance 32 in a birch forest: 18,620 non-empty
+sections, five builder threads. The median of eight rebuilds went from 1,223 ms to 963 ms.
+
+- **Biome tint.** Blending grass, foliage and water colours was 28% of builder time, almost all
+  of it in the fiddled biome zoom. `TintCache` now resolves each layer's biomes once and shares
+  them between the three colour resolvers, skips the zoom entirely when every biome cell it could
+  reach is the same biome, and `BiomeData.getBiome` returns early when a block's eight candidate
+  cells agree. The result is identical; tint is now 17% of builder time.
+- **Region snapshots.** Each build task copies its 3×3×3 neighbourhood on the render thread: block
+  palettes, light layers, 64 biome cells per section, and a registry lookup for the plains
+  fallback. Neighbouring tasks scheduled in the same pass used to copy the same sections up to 27
+  times. `RenderRegionBuilder` now snapshots each section once per `scheduleRebuilds` pass and
+  hands the same immutable copy to every region that needs it. Render-thread time in the section
+  graph during a full rebuild went from about 260 ms to about 150 ms.
+- **Builder wake-up.** A builder that found the queue empty could miss a task scheduled before it
+  started waiting and sleep until the next one arrived. It now checks the queues again under the
+  lock before waiting, which also stops a shutdown from hanging on a thread that missed the stop
+  signal.
+
+Per frame:
+
+- **Terrain uniforms.** The opaque and translucent passes re-uploaded the same MVP and fog
+  uniforms and rebound the descriptor set twice for every chunk area, about 1,200 times a frame
+  at render distance 32. Only the area offset differs between areas, and it is a push constant.
+  The uniforms are now bound once per layer.
+- **Ambient particles.** Vanilla looks up the biome for 1,334 random blocks a tick, each through
+  the eight-cell zoom, to find out whether the biome spawns ambient particles. No overworld biome
+  does. The client level now tracks whether any loaded chunk's biome palette contains one
+  (checked when chunks or biomes arrive) and skips the lookup until one does. In the Nether the
+  first chunk turns it back on. Worth about 0.05 to 0.1 ms of render-thread time a frame.
+
+Two things about this machine skew any measurement taken on it. The laptop GPU stays at its
+lowest clock (210 MHz, P8) under this load, so GPU timings are several times what they would be
+on a desktop. And the NVIDIA driver pins the thread that creates the Vulkan device to the
+performance cores, so every thread the game starts afterwards sees 12 CPUs instead of 20, which
+is why the automatic builder count is five.
+
+### Early-Z solid layer (option, off by default)
+
+VulkanMod draws all opaque terrain with one shader that alpha-tests and `discard`s, so blocks
+that are fully opaque pay for the test as well. *Early-Z Solid Layer* under Optimizations keeps
+`SOLID` blocks in their own layer and draws them with `terrain_early_z`, which has no `discard`
+and declares `early_fragment_tests`. The existing early-Z pipeline config had its samplers at
+bindings 3 and 4 while the shaders use 2 and 3; it now has its own correct config.
+
+The first version drew every chunk's solid geometry before any cutout geometry. That made the
+1080p forest view 11% slower (8.64 ms to 9.59 ms for the opaque pass): near leaves no longer hid
+the terrain behind them, because nothing was drawn near-to-far any more. The solid and cutout
+draws are now interleaved per chunk area, so the order stays near-to-far at area granularity.
+The two pipelines have compatible layouts, so one descriptor set binding serves both.
+
+Measured at 1080p on the RTX 3050 Ti, opaque pass, option off versus on:
+
+| View | Off | On |
+|---|---|---|
+| Birch forest, ground | 8.66, 8.54 ms | 8.83, 8.82 ms |
+| Mountains, open | 12.03 ms | 12.12, 12.25 ms |
+| Underground, spectator | 9.62, 9.18 ms | 10.07, 9.46 ms |
+
+No gain on NVIDIA, which already runs the depth test before a shader that may `discard` and
+only defers the depth write. It stays off by default and in the settings for GPUs where
+`discard` costs more, which could not be measured here.
+
+### Retired pieces
+
+| Gone | Why, and what does the job now |
+|---|---|
+| The VulkanModNeoForge jar, its Mixin agent and its LWJGL "mods" | The renderer is compiled in; the LWJGL jars are game libraries |
+| `compat.VulkanModConfig` | Reflection into a separate jar; the settings screen reads `Initializer.CONFIG` directly |
+| `SPIRVUtilsMixin`, `ShaderIncludes` | 0.6.7 resolves `#moj_import` through vanilla's `GlslPreprocessor` against the resource manager, and its own includes through the rewritten shaderc callback |
+| `GL11QueryMixin` | Needed only while VulkanMod's `GL11` stubs applied; they cannot apply on NeoForge |
+| `mixin/client`, `mixin/renderer` | Actinium's standalone backend hooks, never applied alongside VulkanMod |
 
 ## The first-launch crash, and why Actinium fixes it for you
 
@@ -339,7 +523,7 @@ Every mod below was loaded into a world and looked at, not just checked for a cl
 |---|---|---|---|
 | Create | 6.0.10 | **Works** | needed two Actinium fixes (above) |
 | JEI | 19.44.0.401 | **Works** | item panel, 48 pages, tooltips, search all render |
-| Xaero's Minimap | 26.4.2 | Fails | own shader will not compile |
+| Xaero's Minimap | 26.4.2 | Fails | own shader will not compile (26.5.0's shaders now convert and load in game; its Fabric build's minimap HUD hook never fires on NeoForge; the NeoForge build now draws its map and radar icons, see [Xaero's Minimap 26.5.0 in game](#xaeros-minimap-2650-in-game)) |
 | Xaero's World Map | 1.44.2 | Fails | calls raw LWJGL GL |
 | JourneyMap | 6.0.4 | Fails | own shader has no pipeline |
 
@@ -389,6 +573,202 @@ static call sites. In practice Create works anyway, because it routes through Fl
 `GlStateManager`, which VulkanMod already handles. Xaero's World Map is the opposite case: a
 smaller GL footprint, but raw, and it fails completely. Call-site counts predict effort, not
 outcomes.
+
+## The GLSL converter
+
+Core shaders that VulkanMod does not ship its own copy of, and every post-effect program, go
+through `net.vulkanmod.vulkan.shader.converter`: a lexer and a declaration parser that turn
+OpenGL GLSL into Vulkan GLSL (explicit locations and bindings, loose uniforms gathered into a
+uniform block), which shaderc then compiles. Most mods that bring their own shaders depend on
+it, so its gaps are compatibility failures.
+
+`./gradlew checkShaders -PshaderJars=a.jar,b.jar` runs every core shader and post-effect
+program in the given jars, including jar-in-jar libraries, through the converter and shaderc,
+and lists failures plus uniforms the GLSL uses that the shader JSON never declares.
+`-PshaderDump=dir` writes the converted sources.
+
+Measured against 17 small shaders written the way mod shaders are commonly written, plus every
+vanilla core shader and post-effect program and Xaero's Minimap's shaders:
+
+| Corpus | Before | After |
+|---|---|---|
+| Common mod idioms (17) | 3 compile | 17 compile |
+| Vanilla core shaders (56) | 56 | 56 |
+| Vanilla post-effect programs (9) | not checked | 9 |
+| Xaero's Minimap 26.5.0 (15) | 15 | 15 |
+
+What failed, and what it does now:
+
+- A licence comment before `#version`: rejected with "First glsl line must contain #version".
+  Leading comments and whitespace are skipped, and a shader without `#version` gets one.
+- A block comment containing `*` or `/`, such as `/* a/b */` or the usual `/** ... */` header,
+  ended early and the rest of it was parsed as code. Comments now end at `*/`.
+- `layout(location = N) in/out`, the normal way to write a 3.3 shader, was treated as the start
+  of a uniform block and threw. Layout qualifiers are now parsed on inputs, outputs, uniforms and
+  blocks; explicit fragment output locations are kept.
+- `flat`, `noperspective`, `centroid` and friends were emitted in front of the generated
+  `layout(...)`. They are now kept with the declaration in the right order.
+- Uniform arrays, `uniform float a, b;`, initializers (`uniform float Strength = 1.0;`),
+  precision qualifiers and uniform blocks without a layout all threw. All are parsed; a
+  scalar or vector initializer becomes the value the uniform reads when the shader JSON does not
+  declare it, which is what OpenGL does.
+- `uint`, `bool`, `uvecN`, `bvecN` and `ivec4` uniforms were rejected, and `mat3` was laid out
+  as 36 bytes instead of std140's 48, so a field after a `mat3` overlapped its last column.
+  `mat2` was laid out wrongly too.
+- A `mat4` varying took one location instead of four and collided with the next one.
+- A fragment input with no matching vertex output was silently deleted, so the shader failed on
+  an undeclared identifier. It now gets its own location.
+- `~` stopped the lexer ("Unrecognized char"); unknown characters now pass through.
+- `#ifndef`, `#if`, `#elif`, `#undef` and nesting were not tracked; `#endif` reset everything.
+  Conditionals are now a stack, and regions under an expression the parser cannot evaluate are
+  converted rather than skipped.
+- Multiple fragment outputs threw "Multiple outputs not currently supported".
+- `gl_InstanceID`, and GLSL 1.20's `attribute`, `varying`, `gl_FragColor` and `texture2D`, are
+  mapped to their Vulkan GLSL equivalents.
+
+Uniforms the shader JSON does not declare used to get uninitialised memory (and an error line
+each). Xaero's `framebuffer_lines` is the real case: it reads `FogStart`, `FogEnd` and
+`FogColor` without declaring them, so its lines could pick up whatever was in that memory. They now
+read zero, as they would under OpenGL, and the memory is freed with the shader. Post-effect
+programs threw on a program with no uniforms at all and on any undeclared uniform; both are
+handled the same way.
+
+- Interface blocks between stages (`out Data { vec4 color; flat int layer; } v;`) had no
+  location, which Vulkan requires. A vertex output block now takes as many locations as its
+  members need (a `mat3` takes three, an array one per element) and the fragment input block of
+  the same name gets the same location; `gl_PerVertex` redeclarations pass through.
+
+Not converted yet: arrays of samplers, and sampler types other than `sampler2D`, `samplerCube`
+and `isamplerBuffer`. Both need descriptor support in VulkanMod's pipeline, not only the
+converter, and no mod checked so far uses them.
+
+### Xaero's Minimap 26.5.0 in game
+
+Run in a world through Connector with Actinium: the mod loads, XaeroLib reports its shaders
+reloaded, the world renders and nothing is logged as an error. The old `FogStart`/`FogEnd`/
+`FogColor` errors are gone. The minimap itself never appears, and that is not the renderer: the
+Fabric build draws its HUD from an injection at the head of `Gui.renderHotbarAndDecorations`,
+which NeoForge 21.1's `Gui` still contains but never calls (its hotbar layer calls
+`renderHotbar`). A profile of the render thread shows Xaero's in-world waypoint code running and
+no minimap HUD code at all.
+
+The NeoForge build of the same version (26.5.0) does reach the minimap, and took two Actinium
+fixes to stop crashing:
+
+- `glRenderbufferStorage` threw "Unexpected min filter value: 0" on every call. The
+  renderbuffer's min filter field started at 0, and since renderbuffers have no sampler state in
+  OpenGL the `texParameteri` that would have set it is (rightly) ignored. It now starts at
+  `GL_LINEAR`.
+- `VK_ERROR_DEVICE_LOST` about ten seconds into the world. Validation named it: a barrier on a
+  destroyed `VkImage`, which turned out to be a swapchain image from before the first swapchain
+  recreation. On every resize the main pass handed out new GL texture names for the main
+  target and left the old names pointing at the destroyed images, so anything that had cached
+  `getColorTextureId()` sampled freed memory. The names are now kept and repointed at the new
+  images.
+
+With both, the minimap frame, compass, player arrow and coordinates draw, but the map itself was
+garbage. Xaero creates each map tile with raw `GL11.glGenTextures` and `glTexImage2D`, which went
+to the hidden OpenGL context, then binds the name through `GlStateManager`, which goes to the
+Vulkan backend. Both number their textures from 1, so tile names aliased the backend's own
+textures (validation reported the main target sampled while being rendered to, about 10,000
+errors a minute) and the pixels never reached Vulkan. [Raw OpenGL texture
+routing](#raw-opengl-texture-routing) fixes that: the map, the radar icons on Tab and the
+coordinates all draw, the map follows teleports, and a run with mobs, two teleports and Tab held
+twice reports zero validation errors.
+
+### Xaero's World Map 1.47.0 (NeoForge)
+
+Run alongside Minimap 26.5.0 with texture routing: the map screen opens, draws the explored
+terrain, and zooms from 9× down to 0.11×; closing and reopening keeps the view, and a fresh launch
+that loads the map from World Map's on-disk texture cache (`cache_1/*.xwmc`) shows the same
+terrain with no broken tiles. The minimap's waypoint screen, zoom key and Tab overlay also work.
+
+World Map uses more raw GL than the minimap, so routing grew to cover it: `glGetTexImage` (it
+reads textures back into a pixel pack buffer to build its zoomed-out textures and its cache;
+the data is converted to the requested layout and written into the hidden context's buffer) and
+`glCompressedTexImage2D` (allocated and left empty, with a warning: there is no decoder). Texture
+level queries now answer like a driver: `GL_TEXTURE_INTERNAL_FORMAT` is `GL_RGBA8` and the
+compression queries report none, because World Map decides whether a texture is compressed from
+them.
+
+A session that opens the map, zooms from 3× to 0.11× and back, teleports and reopens it reports
+zero validation errors. It used to report about 260, and fixing them took a change to how the
+backend orders work inside a frame.
+
+The backend records texture uploads into a command buffer that is submitted ahead of the frame,
+and runs readbacks and mip generation as separate submissions on the spot. Both are fine while an
+image's work happens before the frame first uses it. World Map does the opposite: it draws into a
+texture through a framebuffer, then uploads to it or reads it back in the same frame. The upload
+ran before the draw it followed, and the readback ran before the frame had drawn anything, so it
+read an image that did not exist yet (most of the 260 errors).
+
+Images now remember the part of the frame that last drew into them or changed their layout. When
+an upload, readback, mip generation or level copy needs an image the current part has touched,
+`Renderer.flushFrame()` ends the render pass, submits everything recorded so far (pending uploads
+first, then the frame, waiting on the swapchain image the first time), waits for it, restarts the
+same command buffer, records or runs the work, and `resumeAfterFlush()` reopens the render pass
+with its viewport, scissor and depth bias. The swapchain semaphore is waited on once per frame,
+whichever submission comes first. Resuming must come after the work is recorded: resuming first
+transitions a framebuffer texture back to an attachment in the new part, while the upload, which
+runs before that part, still expects the old layout (100 errors in the first version).
+
+It costs a wait each time. Normal play never triggers it (no splits in 40 seconds in a world,
+none in a run without Xaero). World Map triggers it about 180 times in the 0.4 seconds after the
+map opens and about 20 times a second while zooming, which shows as a short hitch on opening.
+
+`runClient` passes Connector the vanilla Mojang-mapped jar from the NeoForm cache as
+`connector.clean.path`, so Fabric mods in `run/mods` no longer stop a dev run with "Could not
+determine clean minecraft artifact path". `-PconnectorCleanPath=<jar>` overrides it.
+
+## Raw OpenGL texture routing
+
+Mods that call `org.lwjgl.opengl.*` directly get the hidden OpenGL context described above. That
+keeps them from crashing, but anything they create there is invisible to the renderer, and the
+names it hands out collide with the renderer's own. Xaero's Minimap is the clear case: it makes
+its map tiles with raw `glGenTextures`/`glTexImage2D` and draws them through `GlStateManager`.
+
+`GLRouter` points 18 entry points of that context at the renderer instead. LWJGL 3.3's GL calls
+are JNI natives that read a per-context function table (`GLCapabilities.getAddressBuffer()`), so
+replacing the driver's address in that table with a libffi closure (`CallbackI`) sends the call
+to Java. Nothing is rewritten in any mod's bytecode, and only the bridge context's table changes.
+
+| Routed | Goes to |
+|---|---|
+| `glGenTextures`, `glDeleteTextures`, `glBindTexture`, `glActiveTexture` | `VkGlTexture`, so names come from the renderer |
+| `glTexImage2D`, `glTexSubImage2D` | converted to RGBA8 by `GLPixelConverter`, then uploaded |
+| `glTexParameteri/f`, `glGenerateMipmap`, `glPixelStorei`, `glGetTexLevelParameteriv` | `VkGlTexture` |
+| `glGetIntegerv` | texture, active unit, framebuffer and unpack queries answered from the renderer; the rest from the driver |
+| `glGetTexImage` | read back from the renderer, packed to the requested format, written to the client pointer or the bound pack buffer |
+| `glCompressedTexImage2D` | allocates the texture empty and warns once (no decoder) |
+| `glClear`, `glClearColor`, `glClearDepth` | `VRenderSystem` |
+| `glGetError` | drains the driver's errors and returns `GL_NO_ERROR`, as `GlStateManager._getError` does |
+
+Only `GL_TEXTURE_2D` is routed. A bind to another target gets a real driver texture behind the
+renderer's name, and parameter and upload calls for that target go to the driver, so 3D and array
+textures keep working in the hidden context. Buffers stay in the hidden context too; when a routed
+upload finds a pixel unpack buffer bound there, it reads the data back with
+`glGetBufferSubData` and uploads that (Xaero streams its tiles this way). `compat.glTextureRouting`
+turns it off; `-Dactinium.glTextureRouting=false` does the same for one launch.
+
+Getting Xaero right also turned up four bugs on the managed path:
+
+- `GL_UNSIGNED_INT_8_8_8_8` and `_REV` ignored the format's component order, so packed BGRA
+  came out with red and blue swapped. Packed types now go through the same ordering as byte types.
+- Uploads from client memory were converted to RGBA8 and then converted again by the backend for
+  `GL_RGB` and `GL_BGRA`. The backend is now told the data is RGBA.
+- Every `VkImages` feature (mip generation, keeping mip levels across a reallocation, reading a
+  level back) had been switched off since the in-tree port, because a reflective lookup still
+  used the old signature of `ImageUtil.copyImageToBufferCmd`.
+- With that fixed, mip generation ran in its own submission, which for a framebuffer texture
+  reads the image before the frame that drew into it is submitted. Mips for a texture attached to
+  a framebuffer are now recorded into the frame's command buffer, between ending and resuming the
+  active render pass. The backend's own mip generator also ended on a barrier with an access mask
+  its stage cannot have; that is fixed.
+
+One limit is deliberate. The backend changes a texture's level count by allocating a new image.
+For a texture already attached to a framebuffer that discards what was drawn into it, which is
+what Xaero's radar icons hit when they set `GL_TEXTURE_MAX_LEVEL` on their render target. Such a
+change is now refused and logged; level 0 is sampled, as it was before routing.
 
 ## Generic fix: shader include resolution
 
@@ -627,8 +1007,17 @@ and Mixin refuses to let anything else inject into a method another mixin has me
 profile 256 methods are replaced and 19 mixins across four mods try to inject into them.
 
 `MixinPreflight` reads every registered mixin's bytecode, pairs the replaced methods against the
-injected ones, and removes the mixins that cannot apply. It names no mod: the rule comes from
+injected ones, and removes the injectors that cannot apply. It names no mod: the rule comes from
 bytecode present at runtime.
+
+It removes only the conflicting handler methods, from the `ClassNode` Mixin keeps for each mixin
+and copies for every target, and the rest of the mixin still applies. It used to remove whole
+mixins, which cost far more than the conflict: through Connector, Fabric API's
+`WorldRendererMixin` collides with the renderer on one method (`setupRender`, which fires
+`WorldRenderEvents.AFTER_SETUP`), and dropping the mixin took every other world render event and
+Fabric's custom sky, cloud and weather renderers with it. Now only `AFTER_SETUP` is lost; the
+exported `LevelRenderer` calls the other twelve handlers. When the class node cannot be reached
+the whole mixin is still dropped, as before.
 
 Two things about it were learned the hard way and are easy to get wrong again.
 

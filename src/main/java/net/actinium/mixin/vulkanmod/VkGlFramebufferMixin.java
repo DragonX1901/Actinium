@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
-@Mixin(targets = {"net.vulkanmod.gl.VkGlFramebuffer", "net.vulkanmod.gl.GlFramebuffer"}, remap = false)
+@Mixin(targets = "net.vulkanmod.gl.VkGlFramebuffer", remap = false)
 public abstract class VkGlFramebufferMixin {
     private static final Logger ACTINIUM$LOGGER = LoggerFactory.getLogger("Actinium/Framebuffer");
 
@@ -119,8 +119,8 @@ public abstract class VkGlFramebufferMixin {
     }
 
     @org.spongepowered.asm.mixin.injection.Inject(
-            method = "beginRendering", at = @At("HEAD"), cancellable = true, remap = false,
-            require = 0)
+            method = "beginRendering(Lnet/vulkanmod/gl/VkGlFramebuffer;)V", at = @At("HEAD"),
+            cancellable = true, remap = false, require = 0)
     private static void actinium$refuseIncompleteRenderPass(
             @org.spongepowered.asm.mixin.injection.Coerce Object glFramebuffer,
             org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
@@ -136,20 +136,6 @@ public abstract class VkGlFramebufferMixin {
     }
 
     private static int actinium$refusedPasses;
-
-    @org.spongepowered.asm.mixin.injection.Inject(
-            method = "createAndBind", at = @At("HEAD"), remap = false, require = 0)
-    private void actinium$keepViewportAcrossRebuild(
-            org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
-        net.actinium.gl.GlViewport.save();
-    }
-
-    @org.spongepowered.asm.mixin.injection.Inject(
-            method = "createAndBind", at = @At("RETURN"), remap = false, require = 0)
-    private void actinium$restoreViewportAfterRebuild(
-            org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
-        net.actinium.gl.GlViewport.restore();
-    }
 
     @org.spongepowered.asm.mixin.injection.Inject(
             method = "framebufferRenderbuffer", at = @At("HEAD"), remap = false)

@@ -1,0 +1,70 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D src;
+layout(binding = 1, r32f) uniform writeonly image2D dst0;
+layout(binding = 2, r32f) uniform writeonly image2D dst1;
+layout(binding = 3, r32f) uniform writeonly image2D dst2;
+layout(binding = 4, r32f) uniform writeonly image2D dst3;
+
+layout(push_constant) uniform Params {
+    ivec2 srcSize;
+    ivec2 dstSize;
+    int srcLod;
+    int levelCount;
+};
+
+shared float tile[16][16];
+
+float fetch(ivec2 pos) {
+    return texelFetch(src, min(pos, srcSize - 1), srcLod).r;
+}
+
+void store(int level, ivec2 pos, float value) {
+    ivec2 size = ((dstSize - 1) >> level) + 1;
+    if (pos.x >= size.x || pos.y >= size.y) {
+        return;
+    }
+
+    if (level == 0) {
+        imageStore(dst0, pos, vec4(value));
+    } else if (level == 1) {
+        imageStore(dst1, pos, vec4(value));
+    } else if (level == 2) {
+        imageStore(dst2, pos, vec4(value));
+    } else {
+        imageStore(dst3, pos, vec4(value));
+    }
+}
+
+void main() {
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    ivec2 group = ivec2(gl_WorkGroupID.xy);
+    ivec2 pos = group * 16 + local;
+    ivec2 base = min(pos, dstSize - 1) * 2;
+
+    float value = max(max(fetch(base), fetch(base + ivec2(1, 0))), max(fetch(base + ivec2(0, 1)), fetch(base + ivec2(1, 1))));
+    store(0, pos, value);
+    tile[local.y][local.x] = value;
+
+    for (int level = 1; level < 4; level++) {
+        barrier();
+
+        int size = 16 >> level;
+        bool inside = local.x < size && local.y < size;
+        if (inside) {
+            ivec2 s = local * 2;
+            value = max(max(tile[s.y][s.x], tile[s.y][s.x + 1]), max(tile[s.y + 1][s.x], tile[s.y + 1][s.x + 1]));
+        }
+
+        barrier();
+
+        if (inside) {
+            tile[local.y][local.x] = value;
+            if (level < levelCount) {
+                store(level, group * size + local, value);
+            }
+        }
+    }
+}

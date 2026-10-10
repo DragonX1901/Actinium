@@ -12,14 +12,18 @@ A mod's OpenGL reaches one of three places, and only one of them is emulated:
 
 | Route | Ends up in | Covered by |
 |---|---|---|
-| `GlStateManager` entry points the renderer replaces (58 of 107) | VulkanMod's `net.vulkanmod.gl.*` | this layer |
-| `GlStateManager` entry points it does not (49 of 107) | vanilla, calling `GL11`/`GL20` directly | `GlStateManagerSafetyNet` |
+| `GlStateManager` entry points the renderer replaces | VulkanMod's `net.vulkanmod.gl.*` | this layer |
+| `GlStateManager` entry points it does not | vanilla, calling `GL11`/`GL20` directly | `GlStateManagerSafetyNet` |
 | `org.lwjgl.opengl.GL11`…`GL45` called directly | the driver, needing a real GL context | `compat.glContextBridge` |
-| LWJGL entry points the renderer stubs itself | its own `@Overwrite` on `GL11`, `GL14`, `GL15`, `GL30` | `GL11QueryMixin` |
+
+On Fabric VulkanMod also stubs a fourth route, `@Overwrite`s on LWJGL's `GL11`, `GL14`, `GL15`
+and `GL30`. On NeoForge LWJGL sits in the boot layer where Mixin cannot reach, so those never
+apply; the calls vanilla made through them are redirected in `GlStateManager` instead, and
+everything else takes the third route.
 
 The third route is not emulation at all. A hidden context is created so the calls resolve, and
-anything drawn through it goes to a window nobody sees. It is off by default and the reasons are
-in [`RUNTIME-SETUP.md`](RUNTIME-SETUP.md).
+anything drawn through it goes to a window nobody sees. It is on by default and can be turned off
+in the settings screen; the reasons are in [`RUNTIME-SETUP.md`](RUNTIME-SETUP.md).
 
 The second is the one that is easy to miss, because the game never takes it: the renderer
 replaced every vanilla caller that would have. A mod that compiles a shader through

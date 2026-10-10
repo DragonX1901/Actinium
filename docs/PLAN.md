@@ -1,5 +1,15 @@
 # Actinium: plan to a shippable release
 
+> **2026-09-19.** The renderer is no longer a bundled third-party jar. VulkanMod 0.6.7 is ported
+> to NeoForge and compiled into Actinium (`src/main/java/net/vulkanmod`), the LWJGL bindings ship
+> as game libraries, and the mod list shows only Actinium. The settings screen carries every
+> VulkanMod option. Sections below that talk about shipping VulkanModNeoForge, its Mixin agent or
+> `GL11QueryMixin` are the history of how the project got here; see
+> [`RUNTIME-SETUP.md`](RUNTIME-SETUP.md#the-in-tree-port) for the current state. The mod
+> compatibility results predate the port and need to be measured again. Two-phase GPU occlusion
+> culling has since been added to the renderer; see
+> [`RUNTIME-SETUP.md`](RUNTIME-SETUP.md#occlusion-culling).
+
 ## What the product actually is
 
 Actinium began as a from-scratch Vulkan backend. It is not one, and it should stop pretending
@@ -20,7 +30,7 @@ is sequenced on that reading.
 | Area | State |
 |---|---|
 | Runs on Vulkan with Create and JEI, in a world | Working, verified |
-| Settings screen bound to VulkanMod's 13 renderer settings | Working, verified |
+| Settings screen with every VulkanMod option next to vanilla's | Working, verified on the port |
 | Compatibility mixins: formats, framebuffer attachments, shader includes, pixel conversion | Working, verified |
 | GL context bridge for raw-GL callers | Working, verified |
 | Texture and image lifetime fixes | Working; the crash in `vmaDestroyImage` is gone |
@@ -30,8 +40,9 @@ is sequenced on that reading.
 | Rendering verified by looking at it | Done on a real GPU, screenshotted |
 | Standalone Vulkan backend (`core/`) | Compiles, boots standalone, mixins disabled in game |
 | GL interop draw path (`interop/`) | Never executed a draw; gated off by default |
-| Packaging for a real installation | Done: the renderer and its LWJGL modules ship inside the jar |
-| The built jar loading in a non-dev profile | Done: `runProdClient`, fresh profile, world loaded |
+| Packaging for a real installation | Done: renderer compiled in, LWJGL modules as game libraries |
+| The built jar loading in a non-dev profile | Done on the port: `runProdClient`, world loaded, only Actinium listed |
+| Mod compatibility on the port | Not yet measured; the table in the README predates it |
 | Repository presentation: README, licence, CI | Done |
 
 ## The decision that unblocks everything else
@@ -186,8 +197,9 @@ So it is a switch, off by default, with both consequences stated where someone f
 read them. That was the state of the record for a long time, and it was wrong. There is no
 trade: the renderer stubs `GL11.glGetInteger` to return zero, Flywheel sizes its vertex arrays
 from a limit, and the bridge only changed whether Flywheel got far enough to read the zero.
-`GL11QueryMixin` answers the query, both kinds of mod work with the context present, and the
-default is now on.
+`GL11QueryMixin` answered the query, both kinds of mod work with the context present, and the
+default is now on. On the in-tree port the stub never applies, so the query goes straight to the
+driver.
 
 ## Verification has a hard limit
 
@@ -208,14 +220,14 @@ should come from `run/logs/latest.log` rather than from an automated guess.
 
 ## Before tagging 0.1.0
 
-1. **Done.** The built jar runs from a mods folder with nothing else installed: it carries
-   VulkanModNeoForge 1.0.0 and the LWJGL Vulkan modules as jar-in-jar mod files, turns FML's
-   OpenGL loading screen off, and reaches a world. Verified on a profile with no config at all,
-   which is what a new install looks like.
+1. **Done.** The built jar runs from a mods folder with nothing else installed: it carries the
+   ported renderer and the LWJGL Vulkan modules as jar-in-jar game libraries, turns FML's
+   OpenGL loading screen off, and reaches a world.
 2. Done, and the answer was neither of the two on offer. The Flywheel failure was not a driver
    artifact and not a conflict with the bridge: `GL11.glGetInteger` is stubbed to zero by the
    renderer, and Flywheel sizes three arrays from it. Fixed in `GL11QueryMixin`; Create and
-   Flywheel now run with the context on.
+   Flywheel now run with the context on. On the port the stub cannot apply at all, so the
+   query reaches the driver and the mixin is gone.
 3. Report the lifetime bugs upstream. Four are worth sending, with the decompiled evidence:
    the framebuffer holding a freed attachment, the barrier recorded against a destroyed image,
    `doFree` calling `vmaDestroyImage` with a null allocation for an image the wrapper never

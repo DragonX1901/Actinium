@@ -35,6 +35,7 @@ public final class MixinPreflight {
 
     private static boolean ran;
     private static int dropped;
+    private static int stripped;
 
     private MixinPreflight() {
     }
@@ -93,9 +94,9 @@ public final class MixinPreflight {
                 if (node == null) {
                     continue;
                 }
-                Replaced blocker = blockerFor(node, entry.info(), replaced);
-                if (blocker != null) {
-                    drop(entry, blocker, node);
+                Map<String, Replaced> conflicts = conflictingHandlers(node, entry.info(), replaced);
+                if (!conflicts.isEmpty() && !strip(entry, conflicts)) {
+                    drop(entry, conflicts.values().iterator().next(), node);
                 }
             }
         } catch (RuntimeException | LinkageError e) {
@@ -108,7 +109,12 @@ public final class MixinPreflight {
         return dropped;
     }
 
-    private static Replaced blockerFor(ClassNode node, IMixinInfo info, List<Replaced> replaced) {
+    public static int strippedCount() {
+        return stripped;
+    }
+
+    private static Map<String, Replaced> conflictingHandlers(ClassNode node, IMixinInfo info, List<Replaced> replaced) {
+        Map<String, Replaced> conflicts = new java.util.LinkedHashMap<>();
         List<String> targets = targets(info);
         for (MethodNode method : node.methods) {
             for (Injection injection : injections(method)) {
@@ -120,17 +126,69 @@ public final class MixinPreflight {
                         continue;
                     }
 
-                    if (candidate.priority() >= info.getPriority()) {
-                        return candidate;
-                    }
-
-                    if (!injection.survivesReplacement()) {
-                        return candidate;
+                    if (candidate.priority() >= info.getPriority() || !injection.survivesReplacement()) {
+                        conflicts.putIfAbsent(method.name + method.desc, candidate);
                     }
                 }
             }
         }
-        return null;
+        return conflicts;
+    }
+
+    private static boolean strip(Registered entry, Map<String, Replaced> conflicts) {
+        ClassNode master = masterNode(entry.info());
+        if (master == null) {
+            return false;
+        }
+
+        List<MethodNode> handlers = new ArrayList<>();
+        for (MethodNode method : master.methods) {
+            if (conflicts.containsKey(method.name + method.desc)) {
+                handlers.add(method);
+            }
+        }
+        if (handlers.size() != conflicts.size()) {
+            return false;
+        }
+
+        master.methods.removeAll(handlers);
+        for (MethodNode handler : handlers) {
+            Replaced blocker = conflicts.get(handler.name + handler.desc);
+            stripped++;
+            LOGGER.warn("Removed {} from mixin {}: it injects into {}.{}, which {} replaces outright, "
+                            + "and Mixin refuses that combination. The rest of the mixin still applies.",
+                    handler.name, entry.info().getClassName(),
+                    blocker.target().substring(blocker.target().lastIndexOf('/') + 1),
+                    blocker.method(), blocker.mixinClassName());
+        }
+        return true;
+    }
+
+    private static ClassNode masterNode(IMixinInfo info) {
+        try {
+            java.lang.reflect.Method getState = null;
+            for (Class<?> type = info.getClass(); type != null && getState == null; type = type.getSuperclass()) {
+                for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+                    if (method.getName().equals("getState") && method.getParameterCount() == 0) {
+                        getState = method;
+                    }
+                }
+            }
+            if (getState == null) {
+                return null;
+            }
+            getState.setAccessible(true);
+            Object state = getState.invoke(info);
+            if (state == null) {
+                return null;
+            }
+            Field classNode = state.getClass().getDeclaredField("classNode");
+            classNode.setAccessible(true);
+            return classNode.get(state) instanceof ClassNode node ? node : null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            reportBlocked("removing a single injector", e);
+            return null;
+        }
     }
 
     private static void drop(Registered entry, Replaced blocker, ClassNode node) {

@@ -170,13 +170,6 @@ public class GlStateManagerSafetyNet {
         }
     }
 
-    @Inject(method = "_polygonOffset", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$polygonOffset(float factor, float units, CallbackInfo ci) {
-        if (actinium$noContext("_polygonOffset")) {
-            ci.cancel();
-        }
-    }
-
     @Inject(method = "_glUniform1(ILjava/nio/IntBuffer;)V", at = @At("HEAD"),
             cancellable = true, remap = false)
     private static void actinium$uniform1i(int location, java.nio.IntBuffer value,
@@ -387,48 +380,6 @@ public class GlStateManagerSafetyNet {
                                                    int format, int type, long pixels,
                                                    CallbackInfo ci) {
         if (actinium$noContext("_readPixels")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_polygonMode", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$polygonMode(int face, int mode, CallbackInfo ci) {
-        if (actinium$noContext("_polygonMode")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_enablePolygonOffset", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$enablePolygonOffset(CallbackInfo ci) {
-        if (actinium$noContext("_enablePolygonOffset")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_disablePolygonOffset", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$disablePolygonOffset(CallbackInfo ci) {
-        if (actinium$noContext("_disablePolygonOffset")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_enableColorLogicOp", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$enableColorLogicOp(CallbackInfo ci) {
-        if (actinium$noContext("_enableColorLogicOp")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_disableColorLogicOp", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$disableColorLogicOp(CallbackInfo ci) {
-        if (actinium$noContext("_disableColorLogicOp")) {
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "_logicOp", at = @At("HEAD"), cancellable = true, remap = false)
-    private static void actinium$logicOp(int op, CallbackInfo ci) {
-        if (actinium$noContext("_logicOp")) {
             ci.cancel();
         }
     }

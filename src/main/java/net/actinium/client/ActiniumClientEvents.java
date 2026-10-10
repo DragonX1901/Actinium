@@ -18,8 +18,6 @@ import org.slf4j.LoggerFactory;
 public final class ActiniumClientEvents {
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Screens");
 
-    private static final String VULKANMOD_OPTION_SCREEN = "net.vulkanmod.config.gui.VOptionScreen";
-
     private static boolean loggedTakeover;
 
     private ActiniumClientEvents() {
@@ -67,7 +65,7 @@ public final class ActiniumClientEvents {
         if (next == null || next instanceof ActiniumOptionsScreen) {
             return;
         }
-        if (!isVideoSettings(next)) {
+        if (!(next instanceof VideoSettingsScreen)) {
             return;
         }
 
@@ -76,10 +74,5 @@ public final class ActiniumClientEvents {
             loggedTakeover = true;
         }
         event.setNewScreen(new ActiniumOptionsScreen(event.getCurrentScreen()));
-    }
-
-    private static boolean isVideoSettings(Screen screen) {
-        return screen instanceof VideoSettingsScreen
-                || VULKANMOD_OPTION_SCREEN.equals(screen.getClass().getName());
     }
 }

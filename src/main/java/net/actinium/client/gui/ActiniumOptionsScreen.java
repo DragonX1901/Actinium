@@ -48,8 +48,6 @@ public class ActiniumOptionsScreen extends Screen {
     public ActiniumOptionsScreen(Screen parent) {
         super(Component.translatable("actinium.options.title"));
         this.parent = parent;
-
-        VulkanModOptionsStorage.INSTANCE.snapshot();
     }
 
     @Override
@@ -229,9 +227,12 @@ public class ActiniumOptionsScreen extends Screen {
             }
 
             y += 6;
-            guiGraphics.drawString(font, Component.translatable("actinium.options.impact",
-                    hovered.impact().label()), x, y, Theme.TEXT_DIM, false);
-            y += 14;
+            for (FormattedCharSequence line : font.split(Component.translatable("actinium.options.impact",
+                    hovered.impact().label()), w)) {
+                guiGraphics.drawString(font, line, x, y, Theme.TEXT_DIM, false);
+                y += LINE_HEIGHT;
+            }
+            y += 4;
 
             if (!hovered.isAvailable()) {
                 for (FormattedCharSequence line : font.split(hovered.unavailableReason(), w)) {

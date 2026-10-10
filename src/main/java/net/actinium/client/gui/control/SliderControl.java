@@ -59,7 +59,7 @@ public final class SliderControl implements Control<Integer> {
 
             guiGraphics.fill(tx, ty, tx + 60, ty + 4, Theme.SLIDER_TRACK);
 
-            float fraction = (option.value() - (float) min) / (max - min);
+            float fraction = Math.clamp((option.value() - (float) min) / (max - min), 0.0F, 1.0F);
             int fill = Math.round(fraction * 60);
             guiGraphics.fill(tx, ty, tx + fill, ty + 4,
                     enabled ? Theme.SLIDER_FILL : Theme.TEXT_DISABLED);
