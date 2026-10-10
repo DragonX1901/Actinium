@@ -28,6 +28,20 @@ final class BufferUploader {
             destroy(ctx, buffer);
         }
 
+        create(ctx, buffer, size, streaming);
+
+        if (data == null) {
+            return;
+        }
+        if (streaming) {
+            writeMapped(ctx, buffer, 0, data);
+        } else {
+            stagedCopy(ctx, buffer, 0, data);
+        }
+    }
+
+    private static void create(VulkanBackend ctx, ActiniumGLState.GLBuffer buffer,
+                               long size, boolean streaming) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkBufferCreateInfo bufferInfo = VkBufferCreateInfo.calloc(stack)
                     .sType$Default()
@@ -56,21 +70,14 @@ final class BufferUploader {
             buffer.size = size;
             buffer.persistentlyMapped = streaming;
         }
-
-        if (data == null) {
-            return;
-        }
-        if (streaming) {
-            writeMapped(ctx, buffer, 0, data);
-        } else {
-            stagedCopy(ctx, buffer, 0, data);
-        }
     }
 
     static void update(VulkanBackend ctx, ActiniumGLState.GLBuffer buffer, long offset, ByteBuffer data) {
-        if (buffer.vkBuffer == VK_NULL_HANDLE) {
-            upload(ctx, buffer, data, true);
+        if (data == null || data.remaining() == 0) {
             return;
+        }
+        if (buffer.vkBuffer == VK_NULL_HANDLE) {
+            create(ctx, buffer, offset + data.remaining(), true);
         }
         if (buffer.persistentlyMapped) {
             writeMapped(ctx, buffer, offset, data);
@@ -124,7 +131,10 @@ final class BufferUploader {
 
     static void destroy(VulkanBackend ctx, ActiniumGLState.GLBuffer buffer) {
         if (buffer.vkBuffer != VK_NULL_HANDLE) {
-            Vma.vmaDestroyBuffer(ctx.allocator(), buffer.vkBuffer, buffer.allocation);
+            if (buffer.persistentlyMapped && buffer.mapped != null) {
+                Vma.vmaUnmapMemory(ctx.allocator(), buffer.allocation);
+            }
+            DeferredDestroy.buffer(buffer.vkBuffer, buffer.allocation);
             buffer.vkBuffer = VK_NULL_HANDLE;
             buffer.allocation = VK_NULL_HANDLE;
             buffer.mapped = null;

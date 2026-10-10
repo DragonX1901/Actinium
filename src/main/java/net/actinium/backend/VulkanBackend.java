@@ -30,6 +30,17 @@ public interface VulkanBackend {
         return 0;
     }
 
+    default boolean ownsRenderPasses() {
+        return false;
+    }
+
+    default long beginDefaultPass() {
+        return currentRenderPass();
+    }
+
+    default void endDefaultPass() {
+    }
+
     int currentFrameIndex();
 
     final class Holder {

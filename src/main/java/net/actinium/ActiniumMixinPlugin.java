@@ -53,8 +53,35 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
         return null;
     }
 
+    private static final String COMPATIBILITY_PACKAGE = "net.actinium.mixin.vulkanmod.";
+
+    private static final java.util.Set<String> RENDERER_MIXINS = java.util.Set.of(
+            "net.actinium.mixin.client.WindowMixin",
+            "net.actinium.mixin.client.RenderSystemMixin",
+            "net.actinium.mixin.renderer.RenderStateMixin",
+            "net.actinium.mixin.renderer.TextureMixin",
+            "net.actinium.mixin.renderer.GeometryMixin",
+            "net.actinium.mixin.renderer.ShaderMixin",
+            "net.actinium.mixin.renderer.FramebufferMixin",
+            "net.actinium.mixin.renderer.BooleanStateRendererMixin");
+
+    private static final java.util.Set<String> COMPATIBILITY_ONLY = java.util.Set.of(
+            "net.actinium.mixin.GlStateManagerSafetyNet",
+            "net.actinium.mixin.GlBridgeMixin",
+            "net.actinium.mixin.GlBridgeFrameMixin");
+
+    public static boolean rendererMode() {
+        return Boolean.getBoolean("actinium.renderer");
+    }
+
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (RENDERER_MIXINS.contains(mixinClassName)) {
+            return rendererMode();
+        }
+        if (COMPATIBILITY_ONLY.contains(mixinClassName) || mixinClassName.startsWith(COMPATIBILITY_PACKAGE)) {
+            return !rendererMode();
+        }
         return true;
     }
 

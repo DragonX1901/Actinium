@@ -14,6 +14,9 @@ public final class GLFormats {
     private static final int GL_DEPTH24_STENCIL8 = 0x88F0;
     private static final int GL_DEPTH32F_STENCIL8 = 0x8CAD;
     private static final int GL_STENCIL_INDEX8 = 0x8D48;
+    private static final int GL_DEPTH_COMPONENT16 = 0x81A5;
+    private static final int GL_DEPTH_COMPONENT24 = 0x81A6;
+    private static final int GL_DEPTH_COMPONENT32 = 0x81A7;
 
     private static final int GL_RGB = 0x1907;
     private static final int GL_RGB8 = 0x8051;
@@ -47,6 +50,8 @@ public final class GLFormats {
         return switch (glInternalFormat) {
             case GL_DEPTH_STENCIL, GL_DEPTH24_STENCIL8, GL_DEPTH32F_STENCIL8, GL_STENCIL_INDEX8 ->
                     depthStencil();
+            case GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT16 -> VK10.VK_FORMAT_D16_UNORM;
+            case GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT32 -> VK10.VK_FORMAT_D32_SFLOAT;
 
             case GL_RGB, GL_RGB8 -> VK10.VK_FORMAT_R8G8B8A8_UNORM;
             case GL_SRGB8_ALPHA8 -> VK10.VK_FORMAT_R8G8B8A8_SRGB;

@@ -25,9 +25,13 @@ public class Actinium {
     }
 
     private void onClientSetup(FMLClientSetupEvent event) {
-        LOGGER.info("Rendering through the built-in Vulkan renderer (VulkanMod {}) on {}",
-                Initializer.getVersion(),
-                DeviceManager.device != null ? DeviceManager.device.deviceName : "an unknown device");
+        if (ActiniumMixinPlugin.rendererMode()) {
+            LOGGER.info("Rendering through Actinium's own renderer; the built-in VulkanMod renderer is off");
+        } else {
+            LOGGER.info("Rendering through the built-in Vulkan renderer (VulkanMod {}) on {}",
+                    Initializer.getVersion(),
+                    DeviceManager.device != null ? DeviceManager.device.deviceName : "an unknown device");
+        }
 
         if (!ActiniumClient.isActive()) {
             return;

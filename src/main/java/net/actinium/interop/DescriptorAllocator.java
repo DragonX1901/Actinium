@@ -20,14 +20,28 @@ final class DescriptorAllocator {
 
     private static final int SETS_PER_POOL = 4096;
 
-    private static long pool = VK_NULL_HANDLE;
+    private static final int POOL_COUNT = 3;
+
+    private static final long[] POOLS = new long[POOL_COUNT];
+
+    private static int current;
 
     private DescriptorAllocator() {
     }
 
     static void beginFrame(VulkanBackend ctx) {
-        if (pool != VK_NULL_HANDLE) {
-            vkResetDescriptorPool(ctx.device(), pool, 0);
+        current = (current + 1) % POOL_COUNT;
+        if (POOLS[current] != VK_NULL_HANDLE) {
+            vkResetDescriptorPool(ctx.device(), POOLS[current], 0);
+        }
+    }
+
+    static void destroy(VulkanBackend ctx) {
+        for (int i = 0; i < POOL_COUNT; i++) {
+            if (POOLS[i] != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(ctx.device(), POOLS[i], null);
+                POOLS[i] = VK_NULL_HANDLE;
+            }
         }
     }
 
@@ -42,7 +56,7 @@ final class DescriptorAllocator {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorSetAllocateInfo allocInfo = VkDescriptorSetAllocateInfo.calloc(stack)
                     .sType$Default()
-                    .descriptorPool(pool)
+                    .descriptorPool(POOLS[current])
                     .pSetLayouts(stack.longs(program.descriptorSetLayout));
 
             LongBuffer pSet = stack.mallocLong(1);
@@ -55,7 +69,8 @@ final class DescriptorAllocator {
             long set = pSet.get(0);
 
             int writeCount = 0;
-            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(2, stack);
+            VkWriteDescriptorSet.Buffer writes =
+                    VkWriteDescriptorSet.calloc(1 + program.samplerBindings.size(), stack);
 
             if (program.uniformStaging != null) {
                 int uniformOffset = UniformRing.write(program.uniformStaging);
@@ -70,21 +85,28 @@ final class DescriptorAllocator {
                         .sType$Default()
                         .dstSet(set)
                         .dstBinding(0)
-                        .descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)
+                        .descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
                         .descriptorCount(1)
                         .pBufferInfo(bufferInfo);
             }
 
-            ActiniumGLState.GLTexture unit0 = state.texture(state.boundTexture(0));
-            if (unit0 != null && unit0.vkImageView != VK_NULL_HANDLE) {
+            for (int binding : program.samplerBindings.values()) {
+                int unit = binding < program.samplerUnits.length ? program.samplerUnits[binding] : 0;
+                ActiniumGLState.GLTexture texture = state.texture(state.boundTexture(unit));
+                if (texture == null || texture.vkImageView == VK_NULL_HANDLE) {
+                    continue;
+                }
+                if (texture.currentLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                    TextureUploader.makeSampleable(ctx, texture);
+                }
                 VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack)
                         .imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                        .imageView(unit0.vkImageView)
-                        .sampler(SamplerCache.forTexture(unit0));
+                        .imageView(texture.vkImageView)
+                        .sampler(SamplerCache.forTexture(texture));
                 writes.get(writeCount++)
                         .sType$Default()
                         .dstSet(set)
-                        .dstBinding(0)
+                        .dstBinding(binding)
                         .descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                         .descriptorCount(1)
                         .pImageInfo(imageInfo);
@@ -99,12 +121,12 @@ final class DescriptorAllocator {
     }
 
     private static void ensurePool(VulkanBackend ctx) {
-        if (pool != VK_NULL_HANDLE) {
+        if (POOLS[current] != VK_NULL_HANDLE) {
             return;
         }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorPoolSize.Buffer sizes = VkDescriptorPoolSize.calloc(2, stack);
-            sizes.get(0).type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC).descriptorCount(SETS_PER_POOL);
+            sizes.get(0).type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(SETS_PER_POOL);
             sizes.get(1).type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                     .descriptorCount(SETS_PER_POOL * ActiniumGLState.MAX_TEXTURE_UNITS);
 
@@ -115,7 +137,7 @@ final class DescriptorAllocator {
 
             LongBuffer pPool = stack.mallocLong(1);
             vkCreateDescriptorPool(ctx.device(), info, null, pPool);
-            pool = pPool.get(0);
+            POOLS[current] = pPool.get(0);
         }
     }
 }

@@ -126,7 +126,11 @@ public final class MixinPreflight {
                         continue;
                     }
 
-                    if (candidate.priority() >= info.getPriority() || !injection.survivesReplacement()) {
+                    if (injection.survivesReplacement()) {
+                        continue;
+                    }
+
+                    if (candidate.priority() >= info.getPriority()) {
                         conflicts.putIfAbsent(method.name + method.desc, candidate);
                     }
                 }
@@ -346,19 +350,20 @@ public final class MixinPreflight {
 
     private static String methodName(String selector) {
         String name = selector;
-        int semicolon = name.indexOf(';');
-        if (semicolon >= 0) {
-            name = name.substring(semicolon + 1);
-        }
+        int cut = name.length();
         int paren = name.indexOf('(');
-        if (paren >= 0) {
-            name = name.substring(0, paren);
+        if (paren >= 0 && paren < cut) {
+            cut = paren;
         }
         int colon = name.indexOf(':');
-        if (colon >= 0) {
-            name = name.substring(0, colon);
+        if (colon >= 0 && colon < cut) {
+            cut = colon;
         }
-        return name.trim();
+        int semicolon = name.indexOf(';');
+        if (semicolon >= 0 && semicolon < cut) {
+            cut = semicolon;
+        }
+        return name.substring(0, cut).trim();
     }
 
     private static ClassNode read(IMixinInfo info, Map<String, ClassNode> cache) {

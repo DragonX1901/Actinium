@@ -27,17 +27,26 @@ final class TextureUploader {
                        int width, int height, int format, int type, ByteBuffer pixels) {
         int vkFormat = format(internalFormat);
 
-        if (texture.vkImage == VK_NULL_HANDLE || texture.width != width || texture.height != height) {
+        if (level > 0) {
+            return;
+        }
+
+        if (texture.vkImage == VK_NULL_HANDLE || texture.width != width || texture.height != height
+                || texture.internalFormat != vkFormat) {
             createImage(ctx, texture, width, height, vkFormat);
         }
         if (pixels == null) {
+            return;
+        }
+        ByteBuffer rgba = GLPixelConverter.toRGBA8(pixels, width, height, format, type);
+        if (rgba == null) {
             return;
         }
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkBufferCreateInfo stagingInfo = VkBufferCreateInfo.calloc(stack)
                     .sType$Default()
-                    .size(pixels.remaining())
+                    .size(rgba.remaining())
                     .usage(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
                     .sharingMode(VK_SHARING_MODE_EXCLUSIVE);
             VmaAllocationCreateInfo stagingAlloc = VmaAllocationCreateInfo.calloc(stack)
@@ -51,7 +60,7 @@ final class TextureUploader {
 
             PointerBuffer pMapped = stack.mallocPointer(1);
             Vma.vmaMapMemory(ctx.allocator(), pStagingAlloc.get(0), pMapped);
-            memCopy(memAddress(pixels), pMapped.get(0), pixels.remaining());
+            memCopy(memAddress(rgba), pMapped.get(0), rgba.remaining());
             Vma.vmaUnmapMemory(ctx.allocator(), pStagingAlloc.get(0));
 
             VkCommandBuffer cmd = TransferQueue.begin(ctx);
@@ -81,6 +90,12 @@ final class TextureUploader {
 
     private static void createImage(VulkanBackend ctx, ActiniumGLState.GLTexture texture,
                                     int width, int height, int vkFormat) {
+        if (texture.vkImage != VK_NULL_HANDLE) {
+            DeferredDestroy.image(texture.vkImage, texture.allocation, texture.vkImageView);
+            texture.vkImageView = VK_NULL_HANDLE;
+            texture.vkImage = VK_NULL_HANDLE;
+            texture.allocation = VK_NULL_HANDLE;
+        }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkImageCreateInfo imageInfo = VkImageCreateInfo.calloc(stack)
                     .sType$Default()
@@ -90,7 +105,8 @@ final class TextureUploader {
                     .arrayLayers(1)
                     .samples(VK_SAMPLE_COUNT_1_BIT)
                     .tiling(VK_IMAGE_TILING_OPTIMAL)
-                    .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                    .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                            | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
                     .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
                     .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
             imageInfo.extent().set(width, height, 1);
@@ -122,6 +138,75 @@ final class TextureUploader {
             vkCreateImageView(ctx.device(), viewInfo, null, pView);
             texture.vkImageView = pView.get(0);
         }
+
+        makeSampleable(ctx, texture);
+    }
+
+    static void uploadRegion(VulkanBackend ctx, ActiniumGLState.GLTexture texture, int x, int y,
+                             int width, int height, int format, int type, ByteBuffer pixels) {
+        if (texture.vkImage == VK_NULL_HANDLE || pixels == null || width <= 0 || height <= 0) {
+            return;
+        }
+        if (x < 0 || y < 0 || x + width > texture.width || y + height > texture.height) {
+            return;
+        }
+        ByteBuffer rgba = GLPixelConverter.toRGBA8(pixels, width, height, format, type);
+        if (rgba == null) {
+            return;
+        }
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            long size = (long) width * height * 4;
+            VkBufferCreateInfo stagingInfo = VkBufferCreateInfo.calloc(stack)
+                    .sType$Default()
+                    .size(size)
+                    .usage(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
+                    .sharingMode(VK_SHARING_MODE_EXCLUSIVE);
+            VmaAllocationCreateInfo stagingAlloc = VmaAllocationCreateInfo.calloc(stack)
+                    .usage(Vma.VMA_MEMORY_USAGE_AUTO_PREFER_HOST)
+                    .flags(Vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+                            | Vma.VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+            LongBuffer pStaging = stack.mallocLong(1);
+            PointerBuffer pStagingAlloc = stack.mallocPointer(1);
+            Vma.vmaCreateBuffer(ctx.allocator(), stagingInfo, stagingAlloc, pStaging, pStagingAlloc, null);
+
+            PointerBuffer pMapped = stack.mallocPointer(1);
+            Vma.vmaMapMemory(ctx.allocator(), pStagingAlloc.get(0), pMapped);
+            org.lwjgl.system.MemoryUtil.memCopy(org.lwjgl.system.MemoryUtil.memAddress(rgba),
+                    pMapped.get(0), size);
+            Vma.vmaUnmapMemory(ctx.allocator(), pStagingAlloc.get(0));
+
+            VkCommandBuffer cmd = TransferQueue.begin(ctx);
+            transition(stack, cmd, texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            VkBufferImageCopy.Buffer region = VkBufferImageCopy.calloc(1, stack);
+            region.get(0).bufferOffset(0).bufferRowLength(0).bufferImageHeight(0);
+            region.get(0).imageSubresource()
+                    .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                    .mipLevel(0)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+            region.get(0).imageOffset().set(x, y, 0);
+            region.get(0).imageExtent().set(width, height, 1);
+            vkCmdCopyBufferToImage(cmd, pStaging.get(0), texture.vkImage,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, region);
+
+            transition(stack, cmd, texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            TransferQueue.submitAndRetire(ctx, cmd, pStaging.get(0), pStagingAlloc.get(0));
+        }
+    }
+
+    static void makeSampleable(VulkanBackend ctx, ActiniumGLState.GLTexture texture) {
+        if (texture.vkImage == VK_NULL_HANDLE
+                || texture.currentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            return;
+        }
+        VkCommandBuffer cmd = TransferQueue.begin(ctx);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            transition(stack, cmd, texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        TransferQueue.submitAndRetire(ctx, cmd, VK_NULL_HANDLE, VK_NULL_HANDLE);
     }
 
     private static void transition(MemoryStack stack, VkCommandBuffer cmd,
@@ -143,7 +228,12 @@ final class TextureUploader {
 
         int srcStage;
         int dstStage;
-        if (newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        if (texture.currentLayout == VK_IMAGE_LAYOUT_UNDEFINED
+                && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            barrier.srcAccessMask(0).dstAccessMask(VK_ACCESS_SHADER_READ_BIT);
+            srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else if (newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
             barrier.srcAccessMask(0).dstAccessMask(VK_ACCESS_TRANSFER_WRITE_BIT);
             srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;

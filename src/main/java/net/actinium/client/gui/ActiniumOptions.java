@@ -14,7 +14,6 @@ public final class ActiniumOptions {
     public boolean glContextBridge = true;
     public ActiniumClient.InteropMode interopMode = ActiniumClient.InteropMode.OFF;
 
-    public boolean vsync = true;
     public boolean gpuCulling = true;
     public boolean multithreadedRecording = true;
     public int chunkBuildThreads = 0;

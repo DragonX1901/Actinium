@@ -113,6 +113,52 @@ neoForge {
                 systemProperty("actinium.glSelfTest", "true")
             }
 
+            // Run Actinium as the renderer instead of as a layer over VulkanMod:
+            //   ./gradlew runClient -Prenderer
+            // VulkanMod must not be installed when this is on; two backends cannot both own
+            // the window surface.
+            if (project.hasProperty("renderer")) {
+                systemProperty("actinium.renderer", "true")
+            }
+
+            // Count where each frame's draws land, to tell an empty frame from a misdirected one:
+            //   ./gradlew runClient -Prenderer -PframeStats
+            if (project.hasProperty("frameStats")) {
+                systemProperty("actinium.frameStats", "true")
+            }
+
+            // Send every draw straight to the swapchain, to tell a bad render target from a
+            // bad blit back to the screen:
+            //   ./gradlew runClient -Prenderer -PignoreFramebuffers
+            if (project.hasProperty("ignoreFramebuffers")) {
+                systemProperty("actinium.ignoreFramebuffers", "true")
+            }
+
+            if (project.hasProperty("debugClear")) {
+                systemProperty("actinium.debugClear", "true")
+            }
+
+            (project.findProperty("dumpTexture") as String?)?.let {
+                systemProperty("actinium.dumpTexture", it)
+            }
+
+            if (project.hasProperty("debugTriangle")) {
+                systemProperty("actinium.debugTriangle", "true")
+            }
+
+            if (project.hasProperty("debugIndexed")) {
+                systemProperty("actinium.debugTriangle", "true")
+                systemProperty("actinium.debugIndexed", "true")
+            }
+
+            // Write what the swapchain actually presented, every sixtieth frame:
+            //   ./gradlew runClient -Prenderer -Pcapture=build/frame.png
+            // A screenshot taken from the X server proves nothing when the window is not
+            // composited; this comes off the image the GPU presented.
+            (project.findProperty("capture") as String?)?.let {
+                systemProperty("actinium.captureFrame", it)
+            }
+
             // Name the caller that freed each Vulkan image, for chasing a use-after-free:
             //   ./gradlew runClient -PtraceFrees
             if (project.hasProperty("traceFrees")) {
@@ -355,6 +401,42 @@ tasks.register<JavaExec>("checkShaders") {
     systemProperty("org.lwjgl.system.stackSize", "1024")
     (project.findProperty("shaderDump") as String?)?.let { systemProperty("actinium.shaderDump", it) }
     args((project.findProperty("shaderJars") as String? ?: "").split(",").filter { it.isNotBlank() })
+}
+
+tasks.register<JavaExec>("shaderCorpus") {
+    group = "verification"
+    description = "Converts every GLSL program in the given jars, or on the classpath, to SPIR-V."
+    mainClass = "net.actinium.dev.ShaderCorpus"
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    systemProperty("org.lwjgl.system.stackSize", "1024")
+    (project.findProperty("dump") as String?)?.let { systemProperty("actinium.dumpShaders", it) }
+    args = (project.findProperty("jars") as String? ?: "").split(",").filter { it.isNotBlank() }
+}
+
+tasks.register<JavaExec>("renderTest") {
+    group = "verification"
+    description = "Draws through the GL layer on an offscreen Vulkan device and checks the pixels."
+    mainClass = "net.actinium.dev.HeadlessRenderTest"
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    systemProperty("org.lwjgl.system.stackSize", "1024")
+    systemProperty("actinium.validation",
+            (project.findProperty("validation") as String? ?: "true"))
+    val softwareIcd = file("/usr/share/vulkan/icd.d/lvp_icd.json")
+    if (!file("/dev/dri").exists() && softwareIcd.exists()) {
+        environment("VK_ICD_FILENAMES", softwareIcd.absolutePath)
+    }
+}
+
+tasks.register<JavaExec>("irisCheck") {
+    group = "verification"
+    description = "Checks that Iris's own shader pack screen resolves through the compat bridge."
+    mainClass = "net.actinium.dev.IrisBridgeCheck"
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    val irisJar = project.findProperty("iris") as String?
+    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime +
+            (if (irisJar != null) files(irisJar) else files())
 }
 
 tasks.register("listConfigs") {

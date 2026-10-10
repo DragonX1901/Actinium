@@ -25,7 +25,7 @@ public abstract class GlUtilMixin {
     @Inject(method = "vulkanFormat(II)I", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private static void actinium$fillFormatGaps(int glFormat, int type,
                                                 CallbackInfoReturnable<Integer> cir) {
-        int vk = GLFormats.translate(glFormat);
+        int vk = actinium$backendDepth(GLFormats.translate(glFormat));
         if (vk != VK10.VK_FORMAT_UNDEFINED) {
             report(glFormat, vk);
             cir.setReturnValue(vk);
@@ -44,11 +44,19 @@ public abstract class GlUtilMixin {
     @Inject(method = "vulkanFormat(I)I", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private static void actinium$fillInternalFormatGaps(int glInternalFormat,
                                                         CallbackInfoReturnable<Integer> cir) {
-        int vk = GLFormats.translate(glInternalFormat);
+        int vk = actinium$backendDepth(GLFormats.translate(glInternalFormat));
         if (vk != VK10.VK_FORMAT_UNDEFINED) {
             report(glInternalFormat, vk);
             cir.setReturnValue(vk);
         }
+    }
+
+    private static int actinium$backendDepth(int vk) {
+        return switch (vk) {
+            case VK10.VK_FORMAT_D16_UNORM, VK10.VK_FORMAT_X8_D24_UNORM_PACK32, VK10.VK_FORMAT_D32_SFLOAT ->
+                    net.vulkanmod.vulkan.Vulkan.getDefaultDepthFormat();
+            default -> vk;
+        };
     }
 
     @Inject(method = "extToShaderKind", at = @At("HEAD"), cancellable = true, remap = false, require = 0)

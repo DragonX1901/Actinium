@@ -15,7 +15,7 @@ public class MixinPlugin implements IMixinConfigPlugin {
    }
 
    public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-      return true;
+      return !Boolean.getBoolean("actinium.renderer");
    }
 
    public void acceptTargets(Set<String> myTargets, Set<String> otherTargets) {

@@ -32,6 +32,13 @@ final class PipelineBuilder {
     private PipelineBuilder() {
     }
 
+    static void destroy(VulkanBackend ctx) {
+        if (pipelineCacheObject != VK_NULL_HANDLE) {
+            vkDestroyPipelineCache(ctx.device(), pipelineCacheObject, null);
+            pipelineCacheObject = VK_NULL_HANDLE;
+        }
+    }
+
     static long build(VulkanBackend ctx, ActiniumGLState.PipelineKey key, long renderPass, int subpass) {
         ActiniumGLState state = ActiniumGLState.get();
         ActiniumGLState.GLProgram program = state.program(key.program());
@@ -73,9 +80,7 @@ final class PipelineBuilder {
                     .polygonMode(polygonMode(key.polygonMode()))
                     .cullMode(key.cull() ? cullMode(key.cullFace()) : VK_CULL_MODE_NONE)
 
-                    .frontFace(key.frontFace() == GLConstants.GL_CCW
-                            ? VK_FRONT_FACE_CLOCKWISE
-                            : VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                    .frontFace(frontFace(key))
                     .depthBiasEnable(false)
                     .lineWidth(1.0f);
 
@@ -147,6 +152,9 @@ final class PipelineBuilder {
         }
     }
 
+    private record Attribute(int location, int binding, int format, long offset) {
+    }
+
     private static VkPipelineVertexInputStateCreateInfo vertexInputState(MemoryStack stack, ActiniumGLState state) {
         ActiniumGLState.GLVertexArray vao = state.vertexArray(state.boundVertexArray());
         if (vao == null) {
@@ -154,7 +162,7 @@ final class PipelineBuilder {
         }
 
         List<Integer> bindingBuffers = new ArrayList<>();
-        List<int[]> attributes = new ArrayList<>();
+        List<Attribute> attributes = new ArrayList<>();
 
         for (int location = 0; location < vao.attribs.length; location++) {
             ActiniumGLState.VertexAttrib attrib = vao.attribs[location];
@@ -166,7 +174,7 @@ final class PipelineBuilder {
                 binding = bindingBuffers.size();
                 bindingBuffers.add(attrib.buffer);
             }
-            attributes.add(new int[]{location, binding, vertexFormat(attrib), (int) attrib.offset});
+            attributes.add(new Attribute(location, binding, vertexFormat(attrib), attrib.offset));
         }
 
         VkVertexInputBindingDescription.Buffer bindings =
@@ -190,8 +198,15 @@ final class PipelineBuilder {
         VkVertexInputAttributeDescription.Buffer attrs =
                 VkVertexInputAttributeDescription.calloc(attributes.size(), stack);
         for (int i = 0; i < attributes.size(); i++) {
-            int[] a = attributes.get(i);
-            attrs.get(i).location(a[0]).binding(a[1]).format(a[2]).offset(a[3]);
+            Attribute a = attributes.get(i);
+            long offset = a.offset();
+            if (offset > 0xFFFF_FFFFL) {
+                LOGGER.warn("Vertex attribute offset {} exceeds Vulkan's 32-bit limit; clamped",
+                        offset);
+                offset = 0xFFFF_FFFFL;
+            }
+            attrs.get(i).location(a.location()).binding(a.binding()).format(a.format())
+                    .offset((int) offset);
         }
 
         return VkPipelineVertexInputStateCreateInfo.calloc(stack)
@@ -324,6 +339,15 @@ final class PipelineBuilder {
             case GLConstants.GL_MAX -> VK_BLEND_OP_MAX;
             default -> VK_BLEND_OP_ADD;
         };
+    }
+
+    private static int frontFace(ActiniumGLState.PipelineKey key) {
+        boolean flipped = key.framebuffer() == 0;
+        boolean counterClockwise = key.frontFace() == GLConstants.GL_CCW;
+        if (!flipped) {
+            counterClockwise = !counterClockwise;
+        }
+        return counterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     }
 
     private static int cullMode(int glFace) {

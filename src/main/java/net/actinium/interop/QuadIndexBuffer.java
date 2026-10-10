@@ -21,6 +21,15 @@ final class QuadIndexBuffer {
     private QuadIndexBuffer() {
     }
 
+    static void destroy(VulkanBackend ctx) {
+        if (buffer != VK_NULL_HANDLE) {
+            org.lwjgl.util.vma.Vma.vmaDestroyBuffer(ctx.allocator(), buffer, allocation);
+            buffer = VK_NULL_HANDLE;
+            allocation = VK_NULL_HANDLE;
+            capacityQuads = 0;
+        }
+    }
+
     static long forQuadCount(int quads) {
         if (quads > capacityQuads) {
             grow(VulkanBackend.require(), Math.max(quads * 2, 4096));

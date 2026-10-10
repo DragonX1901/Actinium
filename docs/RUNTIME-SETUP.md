@@ -720,6 +720,15 @@ map opens and about 20 times a second while zooming, which shows as a short hitc
 `connector.clean.path`, so Fabric mods in `run/mods` no longer stop a dev run with "Could not
 determine clean minecraft artifact path". `-PconnectorCleanPath=<jar>` overrides it.
 
+## Renderer mode and the built-in VulkanMod
+
+The two render paths share one jar. By default the built-in VulkanMod renders. `-Prenderer`
+(`-Dactinium.renderer=true`) runs Actinium's own GL layer instead: `ActiniumMixinPlugin` applies
+the `client.*` and `renderer.*` mixins and drops the VulkanMod compatibility mixins, and
+VulkanMod's own mixin plugin turns every VulkanMod mixin off, so the two never both own the
+window. `GlUtilMixin` sends plain depth formats to VulkanMod's default depth format; the D16 and
+D32F entries in `GLFormats` are for the GL layer, and VulkanMod's image code has no size for D16.
+
 ## Raw OpenGL texture routing
 
 Mods that call `org.lwjgl.opengl.*` directly get the hidden OpenGL context described above. That

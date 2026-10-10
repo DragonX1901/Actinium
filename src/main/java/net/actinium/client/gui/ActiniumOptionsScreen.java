@@ -77,7 +77,7 @@ public class ActiniumOptionsScreen extends Screen {
             }
             y += GROUP_GAP;
         }
-        contentHeight = y + scroll - CONTENT_Y;
+        contentHeight = y + scroll - CONTENT_Y - GROUP_GAP;
 
         int viewport = height - BUTTON_BAR_HEIGHT - CONTENT_Y;
         int maxScroll = Math.max(0, contentHeight - viewport);
@@ -94,6 +94,12 @@ public class ActiniumOptionsScreen extends Screen {
         int applyX = doneX - buttonWidth - gap;
         int undoX = applyX - buttonWidth - gap;
 
+        ActiniumButton shaderPacks = addWidget(new ActiniumButton(MARGIN, buttonY, 96, 20,
+                Component.translatable("actinium.options.shaderpacks"),
+                ActiniumButton.Style.SECONDARY, this::openShaderPacks));
+        shaderPacks.active = net.actinium.compat.IrisShaderScreen.isAvailable();
+        buttons.add(shaderPacks);
+
         undoButton = addWidget(new ActiniumButton(undoX, buttonY, buttonWidth, 20,
                 Component.translatable("actinium.options.undo"),
                 ActiniumButton.Style.SECONDARY, this::undoChanges));
@@ -109,6 +115,13 @@ public class ActiniumOptionsScreen extends Screen {
         buttons.add(doneButton);
 
         updateButtonStates();
+    }
+
+    private void openShaderPacks() {
+        Screen screen = net.actinium.compat.IrisShaderScreen.create(this);
+        if (screen != null) {
+            minecraft.setScreen(screen);
+        }
     }
 
     private void rebuildRows() {

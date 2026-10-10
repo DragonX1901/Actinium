@@ -4,8 +4,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -26,12 +31,14 @@ public final class ActiniumGLState {
     private final Map<Integer, GLBuffer> buffers = new HashMap<>();
     private final Map<Integer, GLVertexArray> vertexArrays = new HashMap<>();
     private final Map<Integer, GLProgram> programs = new HashMap<>();
+    private final Map<Integer, GLShader> shaders = new HashMap<>();
     private final Map<Integer, GLFramebuffer> framebuffers = new HashMap<>();
 
     private int activeTextureUnit = 0;
     private final int[] boundTexture2D = new int[MAX_TEXTURE_UNITS];
     private int boundArrayBuffer = 0;
     private int boundElementArrayBuffer = 0;
+    private int boundUniformBuffer = 0;
     private int boundVertexArray = 0;
     private int boundProgram = 0;
     private int boundDrawFramebuffer = 0;
@@ -64,8 +71,71 @@ public final class ActiniumGLState {
 
     private int generation = 0;
 
+    private final MatrixStack modelView = new MatrixStack();
+    private final MatrixStack projection = new MatrixStack();
+    private final MatrixStack[] textureMatrices = new MatrixStack[MAX_TEXTURE_UNITS];
+    private int matrixMode = GLConstants.GL_MODELVIEW;
+
+    private final float[] fogColor = new float[4];
+    private float fogStart = 0.0f;
+    private float fogEnd = 1.0f;
+    private float fogDensity = 1.0f;
+
     private ActiniumGLState() {
         Arrays.fill(boundTexture2D, 0);
+        for (int i = 0; i < textureMatrices.length; i++) {
+            textureMatrices[i] = new MatrixStack();
+        }
+    }
+
+    public static final class MatrixStack {
+        private final Deque<float[]> saved = new ArrayDeque<>();
+        private float[] current = identity();
+
+        public float[] current() {
+            return current;
+        }
+
+        public void loadIdentity() {
+            current = identity();
+        }
+
+        public void load(float[] values) {
+            System.arraycopy(values, 0, current, 0, 16);
+        }
+
+        public void multiply(float[] right) {
+            current = multiply(current, right);
+        }
+
+        public void push() {
+            saved.push(current.clone());
+        }
+
+        public void pop() {
+            float[] restored = saved.poll();
+            if (restored != null) {
+                current = restored;
+            }
+        }
+
+        public static float[] identity() {
+            return new float[]{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        }
+
+        public static float[] multiply(float[] left, float[] right) {
+            float[] out = new float[16];
+            for (int column = 0; column < 4; column++) {
+                for (int row = 0; row < 4; row++) {
+                    float sum = 0.0f;
+                    for (int i = 0; i < 4; i++) {
+                        sum += left[i * 4 + row] * right[column * 4 + i];
+                    }
+                    out[column * 4 + row] = sum;
+                }
+            }
+            return out;
+        }
     }
 
     public static final class GLTexture {
@@ -125,6 +195,20 @@ public final class ActiniumGLState {
         public int divisor;
     }
 
+    public static final class GLShader {
+        public final int name;
+        public final int type;
+        public String source = "";
+        public boolean compiled;
+        public String infoLog = "";
+        public boolean deleted;
+
+        GLShader(int name, int type) {
+            this.name = name;
+            this.type = type;
+        }
+    }
+
     public static final class GLProgram {
         public final int name;
         public long vertexModule;
@@ -136,6 +220,15 @@ public final class ActiniumGLState {
         public boolean uniformsDirty;
         public final Map<String, Integer> uniformOffsets = new HashMap<>();
 
+        public final List<Integer> attachedShaders = new ArrayList<>();
+        public final Map<String, Integer> boundAttributes = new LinkedHashMap<>();
+        public final Map<String, Integer> attributeLocations = new LinkedHashMap<>();
+        public final Map<String, Integer> samplerBindings = new LinkedHashMap<>();
+        public final Map<String, Integer> builtinUniforms = new LinkedHashMap<>();
+        public int[] samplerUnits = new int[0];
+        public boolean linked;
+        public String infoLog = "";
+
         GLProgram(int name) {
             this.name = name;
         }
@@ -143,6 +236,7 @@ public final class ActiniumGLState {
 
     public static final class GLFramebuffer {
         public final int name;
+        public int colorTexture;
         public long vkRenderPass;
         public long vkFramebuffer;
         public final long[] colorAttachments = new long[8];
@@ -179,6 +273,12 @@ public final class ActiniumGLState {
         return name;
     }
 
+    public int createShader(int type) {
+        int name = nextName.getAndIncrement();
+        shaders.put(name, new GLShader(name, type));
+        return name;
+    }
+
     public int createProgram() {
         int name = nextName.getAndIncrement();
         programs.put(name, new GLProgram(name));
@@ -199,6 +299,22 @@ public final class ActiniumGLState {
 
     public GLProgram program(int name) {
         return programs.get(name);
+    }
+
+    public GLShader shader(int name) {
+        return shaders.get(name);
+    }
+
+    public void removeShader(int name) {
+        shaders.remove(name);
+    }
+
+    public void removeProgram(int name) {
+        programs.remove(name);
+        if (boundProgram == name) {
+            boundProgram = 0;
+            generation++;
+        }
     }
 
     public GLFramebuffer framebuffer(int name) {
@@ -234,13 +350,18 @@ public final class ActiniumGLState {
                     vao.elementBuffer = name;
                 }
             }
+            case GLConstants.GL_UNIFORM_BUFFER -> boundUniformBuffer = name;
             default -> LOGGER.debug("bindBuffer on unhandled target 0x{}", Integer.toHexString(target));
         }
     }
 
     public void bindVertexArray(int name) {
-        boundVertexArray = name;
-        generation++;
+        if (boundVertexArray != name) {
+            boundVertexArray = name;
+            GLVertexArray vao = vertexArrays.get(name);
+            boundElementArrayBuffer = vao != null ? vao.elementBuffer : 0;
+            generation++;
+        }
     }
 
     public void useProgram(int name) {
@@ -403,6 +524,109 @@ public final class ActiniumGLState {
         return true;
     }
 
+    public void destroyObjects(net.actinium.backend.VulkanBackend backend) {
+        for (GLProgram program : new ArrayList<>(programs.values())) {
+            ShaderConverter.destroy(program);
+        }
+        programs.clear();
+        shaders.clear();
+
+        for (GLTexture texture : textures.values()) {
+            if (texture.vkImageView != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyImageView(backend.device(), texture.vkImageView, null);
+            }
+            if (texture.vkImage != 0L) {
+                org.lwjgl.util.vma.Vma.vmaDestroyImage(backend.allocator(), texture.vkImage, texture.allocation);
+            }
+        }
+        textures.clear();
+
+        for (GLBuffer buffer : buffers.values()) {
+            if (buffer.vkBuffer != 0L) {
+                org.lwjgl.util.vma.Vma.vmaDestroyBuffer(backend.allocator(), buffer.vkBuffer, buffer.allocation);
+            }
+            buffer.mapped = null;
+        }
+        buffers.clear();
+        vertexArrays.clear();
+
+        for (GLFramebuffer framebuffer : framebuffers.values()) {
+            if (framebuffer.vkFramebuffer != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyFramebuffer(backend.device(), framebuffer.vkFramebuffer, null);
+            }
+            if (framebuffer.vkRenderPass != 0L) {
+                org.lwjgl.vulkan.VK10.vkDestroyRenderPass(backend.device(), framebuffer.vkRenderPass, null);
+            }
+        }
+        framebuffers.clear();
+
+        Arrays.fill(boundTexture2D, 0);
+        boundArrayBuffer = 0;
+        boundElementArrayBuffer = 0;
+        boundUniformBuffer = 0;
+        boundVertexArray = 0;
+        boundProgram = 0;
+        boundDrawFramebuffer = 0;
+        boundReadFramebuffer = 0;
+        generation++;
+    }
+
+    public void matrixMode(int mode) {
+        matrixMode = mode;
+    }
+
+    public MatrixStack currentMatrix() {
+        return switch (matrixMode) {
+            case GLConstants.GL_PROJECTION -> projection;
+            case GLConstants.GL_TEXTURE -> textureMatrices[activeTextureUnit];
+            default -> modelView;
+        };
+    }
+
+    public MatrixStack modelViewMatrix() {
+        return modelView;
+    }
+
+    public MatrixStack projectionMatrix() {
+        return projection;
+    }
+
+    public MatrixStack textureMatrix(int unit) {
+        return textureMatrices[Math.clamp(unit, 0, MAX_TEXTURE_UNITS - 1)];
+    }
+
+    public void fog(int parameter, float value) {
+        switch (parameter) {
+            case GLConstants.GL_FOG_START -> fogStart = value;
+            case GLConstants.GL_FOG_END -> fogEnd = value;
+            case GLConstants.GL_FOG_DENSITY -> fogDensity = value;
+            default -> LOGGER.debug("Ignoring glFog parameter 0x{}", Integer.toHexString(parameter));
+        }
+    }
+
+    public void fogColor(float r, float g, float b, float a) {
+        fogColor[0] = r;
+        fogColor[1] = g;
+        fogColor[2] = b;
+        fogColor[3] = a;
+    }
+
+    public float[] fogColor() {
+        return fogColor;
+    }
+
+    public float fogStart() {
+        return fogStart;
+    }
+
+    public float fogEnd() {
+        return fogEnd;
+    }
+
+    public float fogDensity() {
+        return fogDensity;
+    }
+
     public int activeTextureUnit() {
         return activeTextureUnit;
     }
@@ -417,6 +641,10 @@ public final class ActiniumGLState {
 
     public int boundElementArrayBuffer() {
         return boundElementArrayBuffer;
+    }
+
+    public int boundUniformBuffer() {
+        return boundUniformBuffer;
     }
 
     public int boundVertexArray() {

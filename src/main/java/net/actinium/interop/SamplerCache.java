@@ -16,6 +16,13 @@ final class SamplerCache {
     private SamplerCache() {
     }
 
+    static void destroy(VulkanBackend ctx) {
+        for (long sampler : CACHE.values()) {
+            vkDestroySampler(ctx.device(), sampler, null);
+        }
+        CACHE.clear();
+    }
+
     static long forTexture(ActiniumGLState.GLTexture texture) {
         if (texture.vkSampler != VK_NULL_HANDLE) {
             return texture.vkSampler;
