@@ -20,6 +20,8 @@ public final class OptionImpl<S, T> implements Option<T> {
     private final EnumSet<OptionFlag> flags;
     private final AvailabilityCheck availability;
 
+    private static final Component RENDERER_MODE = Component.translatable("actinium.options.unavailable.rendererMode");
+
     private T pending;
 
     @FunctionalInterface
@@ -91,11 +93,14 @@ public final class OptionImpl<S, T> implements Option<T> {
 
     @Override
     public boolean isAvailable() {
-        return availability == null || availability.unavailableReason() == null;
+        return unavailableReason() == null;
     }
 
     @Override
     public Component unavailableReason() {
+        if (storage == VulkanModOptionsStorage.INSTANCE && net.actinium.ActiniumMixinPlugin.rendererMode()) {
+            return RENDERER_MODE;
+        }
         return availability == null ? null : availability.unavailableReason();
     }
 

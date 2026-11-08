@@ -57,6 +57,7 @@ public final class GlslPatcher {
                     + "|highp|mediump|lowp)[ \\t]+)*(?:in|out|uniform|attribute|varying)[ \\t]+\\w+)"
                     + "[ \\t]+(?<names>\\w+[ \\t]*(?:\\[[^]]*])?(?:[ \\t]*,[ \\t]*\\w+[ \\t]*(?:\\[[^]]*])?)+)"
                     + "[ \\t]*;[ \\t]*$", Pattern.MULTILINE);
+    private static final Pattern MAIN_FUNCTION = Pattern.compile("\\bvoid\\s+main\\s*\\(\\s*(?:void\\s*)?\\)");
     private static final Pattern VERTEX_ID = Pattern.compile("\\bgl_VertexID\\b");
     private static final Pattern INSTANCE_ID = Pattern.compile("\\bgl_InstanceID\\b");
     private static final Pattern FIXED_FUNCTION = Pattern.compile(
@@ -501,9 +502,23 @@ public final class GlslPatcher {
             out = out.replace("gl_FragColor", "actiniumFragColor");
         }
 
+        if (stage == ShaderCompiler.Stage.VERTEX && out.contains("gl_Position")) {
+            out = remapDepthRange(out);
+        }
+
         LOGGER.debug("Patched {}: {} UBO member(s), {} sampler(s)", name,
                 iface.uniformBlock().size(), iface.samplers().size());
         return out;
+    }
+
+    private static String remapDepthRange(String source) {
+        Matcher main = MAIN_FUNCTION.matcher(source);
+        if (!main.find()) {
+            return source;
+        }
+        return main.replaceFirst("void actiniumMain()")
+                + "\nvoid main() {\n    actiniumMain();\n"
+                + "    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}\n";
     }
 
     private static String replaceUniforms(String source, ProgramInterface iface) {

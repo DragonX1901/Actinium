@@ -87,8 +87,7 @@ public abstract class TextureMixin {
                                                CallbackInfo ci) {
         GlEmulation.texSubImage2D(target, level, x, y, width, height, format, type,
                 pixels == 0L ? null : org.lwjgl.system.MemoryUtil.memByteBuffer(pixels,
-                        Math.max(0, width * height
-                                * net.actinium.interop.GLPixelConverter.bytesPerPixel(format, type))));
+                        actinium$unpackedSize(width, height, format, type)));
         ci.cancel();
     }
 
@@ -98,11 +97,24 @@ public abstract class TextureMixin {
     private static void actinium$upload(int level, int x, int y, int width, int height,
                                         NativeImage.Format format, IntBuffer pixels,
                                         Consumer<IntBuffer> release, CallbackInfo ci) {
+        net.actinium.interop.GLPixelConverter.pixelStore(0x0CF2, width);
+        net.actinium.interop.GLPixelConverter.pixelStore(0x0CF3, 0);
+        net.actinium.interop.GLPixelConverter.pixelStore(0x0CF4, 0);
+        net.actinium.interop.GLPixelConverter.pixelStore(0x0CF5, 4);
         GlEmulation.texSubImage2D(0x0DE1, level, x, y, width, height, 0x1908, 0x1401,
                 pixels == null ? null : org.lwjgl.system.MemoryUtil.memByteBuffer(
                         org.lwjgl.system.MemoryUtil.memAddress(pixels), pixels.remaining() * 4));
         release.accept(pixels);
         ci.cancel();
+    }
+
+    private static int actinium$unpackedSize(int width, int height, int format, int type) {
+        if (width <= 0 || height <= 0) {
+            return 0;
+        }
+        return net.actinium.interop.GLPixelConverter.startOffset(width, format, type)
+                + (height - 1) * net.actinium.interop.GLPixelConverter.rowStride(width, format, type)
+                + width * net.actinium.interop.GLPixelConverter.bytesPerPixel(format, type);
     }
 
     @Inject(method = "_getTexImage(IIIIJ)V", at = @At("HEAD"), cancellable = true, remap = false)
@@ -123,7 +135,7 @@ public abstract class TextureMixin {
 
     @Inject(method = "_pixelStore(II)V", at = @At("HEAD"), cancellable = true, remap = false)
     private static void actinium$pixelStore(int name, int value, CallbackInfo ci) {
-        GlEmulation.unported("pixel store");
+        net.actinium.interop.GLPixelConverter.pixelStore(name, value);
         ci.cancel();
     }
 

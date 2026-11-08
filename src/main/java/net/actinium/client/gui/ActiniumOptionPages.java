@@ -1,5 +1,6 @@
 package net.actinium.client.gui;
 
+import net.actinium.ActiniumMixinPlugin;
 import net.actinium.client.gui.control.CyclingControl;
 import net.actinium.client.gui.control.SliderControl;
 import net.actinium.client.gui.control.TickBoxControl;
@@ -39,9 +40,14 @@ public final class ActiniumOptionPages {
         OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
         Minecraft minecraft = Minecraft.getInstance();
 
-        VideoModeManager.checkConfigVideoMode(vk.data());
-        VideoModeManager.selectBestMonitor(minecraft.getWindow());
-        List<VideoModeSet> resolutions = Arrays.asList(VideoModeManager.getVideoResolutions());
+        boolean vulkanModRunning = !ActiniumMixinPlugin.rendererMode();
+        if (vulkanModRunning) {
+            VideoModeManager.checkConfigVideoMode(vk.data());
+            VideoModeManager.selectBestMonitor(minecraft.getWindow());
+        }
+        List<VideoModeSet> resolutions = vulkanModRunning
+                ? Arrays.asList(VideoModeManager.getVideoResolutions())
+                : List.of(VideoModeSet.getDummy());
 
         Option<WindowMode> windowMode = OptionImpl.<Config, WindowMode>of(vk)
                 .name(Component.translatable("vulkanmod.options.windowMode"))
@@ -197,7 +203,7 @@ public final class ActiniumOptionPages {
     }
 
     private static VideoModeSet resolutionOf(Config config, List<VideoModeSet> resolutions) {
-        VideoModeSet set = VideoModeManager.getVideoModeSet(config.videoMode);
+        VideoModeSet set = ActiniumMixinPlugin.rendererMode() ? null : VideoModeManager.getVideoModeSet(config.videoMode);
         if (set != null) {
             return set;
         }
