@@ -218,6 +218,15 @@ public final class ActiniumGLState {
 
         public ByteBuffer uniformStaging;
         public boolean uniformsDirty;
+        ByteBuffer uniformShadow;
+        int uniformOffset = -1;
+        int uniformEpoch = -1;
+        long cachedSet;
+        int cachedSetEpoch = -1;
+        int cachedSetUniformOffset = -1;
+        long[] boundViews = new long[0];
+        long[] boundSamplers = new long[0];
+        int[] boundBindings = new int[0];
         public final Map<String, Integer> uniformOffsets = new HashMap<>();
 
         public final List<Integer> attachedShaders = new ArrayList<>();

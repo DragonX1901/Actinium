@@ -19,13 +19,17 @@ import static org.lwjgl.vulkan.VK10.*;
 final class UniformRing {
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/Uniforms");
 
-    private static final int DEFAULT_SIZE = 8 * 1024 * 1024;
+    private static final int DEFAULT_SIZE = 4 * 1024 * 1024;
+    private static final int SLICES = 3;
 
     private static long buffer = VK_NULL_HANDLE;
     private static long allocation = VK_NULL_HANDLE;
     private static ByteBuffer mapped;
     private static int capacity;
     private static int offset;
+    private static int sliceSize;
+    private static int sliceEnd;
+    private static int slice;
     private static int alignment = 256;
     private static boolean overflowReported;
 
@@ -34,7 +38,9 @@ final class UniformRing {
 
     static void beginFrame(VulkanBackend ctx) {
         ensure(ctx);
-        offset = 0;
+        slice = (slice + 1) % SLICES;
+        offset = slice * sliceSize;
+        sliceEnd = offset + sliceSize;
     }
 
     static void destroy(VulkanBackend ctx) {
@@ -48,6 +54,9 @@ final class UniformRing {
         mapped = null;
         capacity = 0;
         offset = 0;
+        sliceSize = 0;
+        sliceEnd = 0;
+        slice = 0;
         overflowReported = false;
     }
 
@@ -58,11 +67,11 @@ final class UniformRing {
     static int write(ByteBuffer data) {
         int size = data.remaining();
         int aligned = (offset + alignment - 1) & ~(alignment - 1);
-        if (aligned + size > capacity) {
+        if (aligned + size > sliceEnd) {
             if (!overflowReported) {
                 overflowReported = true;
-                LOGGER.error("Uniform ring exhausted at {} bytes. Draws are being skipped; "
-                        + "raise actinium.uniformRingBytes.", capacity);
+                LOGGER.error("Uniform ring exhausted at {} bytes in one frame. Draws are being skipped; "
+                        + "raise actinium.uniformRingBytes.", sliceSize);
             }
             return -1;
         }
@@ -80,7 +89,12 @@ final class UniformRing {
             vkGetPhysicalDeviceProperties(ctx.physicalDevice(), props);
             alignment = (int) Math.max(props.limits().minUniformBufferOffsetAlignment(), 16);
 
-            capacity = Integer.getInteger("actinium.uniformRingBytes", DEFAULT_SIZE);
+            int requested = Math.max(Integer.getInteger("actinium.uniformRingBytes", DEFAULT_SIZE), 64 * 1024);
+            sliceSize = (requested + alignment - 1) & ~(alignment - 1);
+            capacity = sliceSize * SLICES;
+            slice = 0;
+            offset = 0;
+            sliceEnd = sliceSize;
 
             VkBufferCreateInfo info = VkBufferCreateInfo.calloc(stack)
                     .sType$Default()

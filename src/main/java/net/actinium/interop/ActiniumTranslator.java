@@ -47,12 +47,44 @@ public final class ActiniumTranslator {
     private int frameCounter;
     private int drawsToScreen;
     private int drawsToTarget;
+    private long statsSetsAllocated;
+    private long statsSetsReused;
 
     private int drawsThisFrame;
     private int pipelineBindsThisFrame;
     private int cacheMissesThisFrame;
 
+    private VkCommandBuffer boundCommandBuffer;
+    private long boundPipeline;
+    private long boundLayout;
+    private long boundSet;
+    private final long[] boundVertexBuffers = new long[ActiniumGLState.MAX_VERTEX_ATTRIBS];
+    private int boundVertexBufferCount = -1;
+    private final long[] vertexBufferScratch = new long[ActiniumGLState.MAX_VERTEX_ATTRIBS];
+    private final int[] boundViewport = new int[5];
+    private final int[] boundScissor = new int[4];
+    private boolean dynamicStateValid;
+    private float boundLineWidth = Float.NaN;
+
     private ActiniumTranslator() {
+    }
+
+    private void invalidateBindings() {
+        boundCommandBuffer = null;
+        boundPipeline = VK_NULL_HANDLE;
+        boundLayout = VK_NULL_HANDLE;
+        boundSet = VK_NULL_HANDLE;
+        boundVertexBufferCount = -1;
+        dynamicStateValid = false;
+        boundLineWidth = Float.NaN;
+    }
+
+    private void trackBindings(VkCommandBuffer cmd) {
+        VulkanBackend backend = VulkanBackend.get();
+        if (cmd != boundCommandBuffer || backend == null || !backend.ownsRenderPasses()) {
+            invalidateBindings();
+            boundCommandBuffer = cmd;
+        }
     }
 
     public void beginFrame(VkCommandBuffer cmd) {
@@ -65,6 +97,7 @@ public final class ActiniumTranslator {
         DeferredDestroy.beginFrame(VulkanBackend.require());
         DescriptorAllocator.beginFrame(VulkanBackend.require());
         UniformRing.beginFrame(VulkanBackend.require());
+        invalidateBindings();
         this.currentCommandBuffer = cmd;
         this.currentRenderPass = renderPass;
         this.currentSubpass = subpass;
@@ -79,8 +112,14 @@ public final class ActiniumTranslator {
     public void endFrame() {
         endActivePass();
         if (FRAME_STATS && ++frameCounter % 60 == 0) {
-            LOGGER.info("frame {}: {} draw(s) to the screen, {} to render targets, {} pipeline(s) cached",
-                    frameCounter, drawsToScreen, drawsToTarget, pipelineCache.size());
+            long allocated = DescriptorAllocator.setsAllocated();
+            long reused = DescriptorAllocator.setsReused();
+            LOGGER.info("frame {}: {} draw(s) to the screen, {} to render targets, {} pipeline(s) cached, "
+                            + "{} pipeline bind(s), descriptor sets {} written / {} reused",
+                    frameCounter, drawsToScreen, drawsToTarget, pipelineCache.size(),
+                    pipelineBindsThisFrame, allocated - statsSetsAllocated, reused - statsSetsReused);
+            statsSetsAllocated = allocated;
+            statsSetsReused = reused;
             drawsToScreen = 0;
             drawsToTarget = 0;
         }
@@ -108,6 +147,7 @@ public final class ActiniumTranslator {
             return;
         }
         vkDeviceWaitIdle(backend.device());
+        invalidateBindings();
         for (long pipeline : pipelineCache.values()) {
             vkDestroyPipeline(backend.device(), pipeline, null);
         }
@@ -153,6 +193,7 @@ public final class ActiniumTranslator {
             }
             long pass = FramebufferCache.renderPassFor(backend, framebuffer);
             if (pass != VK_NULL_HANDLE && FramebufferCache.begin(backend, cmd, framebuffer)) {
+                invalidateBindings();
                 currentRenderPass = pass;
                 activeFramebuffer = target;
                 passOpen = true;
@@ -164,6 +205,7 @@ public final class ActiniumTranslator {
         if (pass == VK_NULL_HANDLE) {
             return false;
         }
+        invalidateBindings();
         currentRenderPass = pass;
         activeFramebuffer = 0;
         passOpen = true;
@@ -176,6 +218,7 @@ public final class ActiniumTranslator {
         }
         VulkanBackend backend = VulkanBackend.get();
         passOpen = false;
+        invalidateBindings();
         if (backend == null || !backend.ownsRenderPasses()) {
             return;
         }
@@ -206,6 +249,7 @@ public final class ActiniumTranslator {
             if (pass == VK_NULL_HANDLE) {
                 return;
             }
+            invalidateBindings();
             currentRenderPass = pass;
             activeFramebuffer = 0;
             passOpen = true;
@@ -254,6 +298,7 @@ public final class ActiniumTranslator {
     }
 
     public void invalidateProgram(int program) {
+        invalidateBindings();
         VulkanBackend backend = VulkanBackend.get();
         if (backend == null) {
             pipelineCache.keySet().removeIf(key -> key.program() == program);
@@ -280,6 +325,7 @@ public final class ActiniumTranslator {
         if (cmd == null || !ensurePass()) {
             return;
         }
+        trackBindings(cmd);
         if (mode == GLConstants.GL_QUADS) {
             int quads = count / 4;
             long indexBuffer = QuadIndexBuffer.forQuadCount(quads);
@@ -308,6 +354,7 @@ public final class ActiniumTranslator {
         if (cmd == null || !ensurePass()) {
             return;
         }
+        trackBindings(cmd);
         ActiniumGLState state = ActiniumGLState.get();
         ActiniumGLState.GLBuffer ebo = state.buffer(state.boundElementArrayBuffer());
         if (ebo == null || ebo.vkBuffer == VK_NULL_HANDLE) {
@@ -335,6 +382,7 @@ public final class ActiniumTranslator {
         if (cmd == null || !ensurePass()) {
             return;
         }
+        trackBindings(cmd);
         ActiniumGLState state = ActiniumGLState.get();
         ActiniumGLState.GLBuffer ebo = state.buffer(state.boundElementArrayBuffer());
         if (ebo == null || ebo.vkBuffer == VK_NULL_HANDLE) {
@@ -371,8 +419,11 @@ public final class ActiniumTranslator {
             pipeline = PipelineBuilder.build(VulkanBackend.require(), key, renderPass, currentSubpass);
             pipelineCache.put(key, pipeline);
         }
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        pipelineBindsThisFrame++;
+        if (pipeline != boundPipeline) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            boundPipeline = pipeline;
+            pipelineBindsThisFrame++;
+        }
         if (activeFramebuffer > 0) {
             drawsToTarget++;
         } else {
@@ -410,12 +461,14 @@ public final class ActiniumTranslator {
         }
 
         long descriptorSet = DescriptorAllocator.setFor(state);
-        if (descriptorSet != VK_NULL_HANDLE) {
-            ActiniumGLState.GLProgram program = state.program(state.boundProgram());
+        if (descriptorSet != VK_NULL_HANDLE && bound != null
+                && (descriptorSet != boundSet || bound.pipelineLayout != boundLayout)) {
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        program.pipelineLayout, 0, stack.longs(descriptorSet), null);
+                        bound.pipelineLayout, 0, stack.longs(descriptorSet), null);
             }
+            boundSet = descriptorSet;
+            boundLayout = bound.pipelineLayout;
         }
         return true;
     }
@@ -426,38 +479,42 @@ public final class ActiniumTranslator {
         if (vao == null) {
             return;
         }
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            int bindingCount = 0;
-            long[] handles = new long[ActiniumGLState.MAX_VERTEX_ATTRIBS];
-            long[] offsets = new long[ActiniumGLState.MAX_VERTEX_ATTRIBS];
-            for (ActiniumGLState.VertexAttrib attrib : vao.attribs) {
-                if (attrib == null || !attrib.enabled) {
-                    continue;
-                }
-                ActiniumGLState.GLBuffer vbo = state.buffer(attrib.buffer);
-                if (vbo == null || vbo.vkBuffer == VK_NULL_HANDLE) {
-                    continue;
-                }
-                boolean seen = false;
-                for (int i = 0; i < bindingCount; i++) {
-                    if (handles[i] == vbo.vkBuffer) {
-                        seen = true;
-                        break;
-                    }
-                }
-                if (!seen) {
-                    handles[bindingCount] = vbo.vkBuffer;
-                    offsets[bindingCount] = 0;
-                    bindingCount++;
+        long[] handles = vertexBufferScratch;
+        int bindingCount = 0;
+        for (ActiniumGLState.VertexAttrib attrib : vao.attribs) {
+            if (attrib == null || !attrib.enabled) {
+                continue;
+            }
+            ActiniumGLState.GLBuffer vbo = state.buffer(attrib.buffer);
+            if (vbo == null || vbo.vkBuffer == VK_NULL_HANDLE) {
+                continue;
+            }
+            boolean seen = false;
+            for (int i = 0; i < bindingCount; i++) {
+                if (handles[i] == vbo.vkBuffer) {
+                    seen = true;
+                    break;
                 }
             }
-            if (bindingCount == 0) {
-                return;
+            if (!seen) {
+                handles[bindingCount++] = vbo.vkBuffer;
             }
-            vkCmdBindVertexBuffers(cmd, 0,
-                    stack.longs(java.util.Arrays.copyOf(handles, bindingCount)),
-                    stack.longs(java.util.Arrays.copyOf(offsets, bindingCount)));
         }
+        if (bindingCount == 0) {
+            return;
+        }
+        if (bindingCount <= boundVertexBufferCount
+                && java.util.Arrays.equals(handles, 0, bindingCount, boundVertexBuffers, 0, bindingCount)) {
+            return;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            java.nio.LongBuffer pBuffers = stack.mallocLong(bindingCount);
+            java.nio.LongBuffer pOffsets = stack.callocLong(bindingCount);
+            pBuffers.put(0, handles, 0, bindingCount);
+            vkCmdBindVertexBuffers(cmd, 0, pBuffers, pOffsets);
+        }
+        System.arraycopy(handles, 0, boundVertexBuffers, 0, bindingCount);
+        boundVertexBufferCount = bindingCount;
     }
 
     private void applyDynamicState(VkCommandBuffer cmd) {
@@ -466,25 +523,55 @@ public final class ActiniumTranslator {
             int[] vp = state.viewportBox();
 
             boolean toScreen = activeFramebuffer <= 0;
-            VkViewport.Buffer viewport = VkViewport.calloc(1, stack)
-                    .x(vp[0])
-                    .y(toScreen ? vp[1] + (float) vp[3] : vp[1])
-                    .width(vp[2])
-                    .height(toScreen ? -(float) vp[3] : vp[3])
-                    .minDepth(0.0f)
-                    .maxDepth(1.0f);
-            vkCmdSetViewport(cmd, 0, viewport);
-
+            int screenFlag = toScreen ? 1 : 0;
             int[] sc = state.scissorEnabled() ? state.scissorBox() : vp;
+            int scissorX = Math.max(0, sc[0]);
             int scissorY = state.scissorEnabled()
                     ? Math.max(0, vp[1] + vp[3] - sc[1] - sc[3])
                     : Math.max(0, vp[1]);
-            VkRect2D.Buffer scissor = VkRect2D.calloc(1, stack);
-            scissor.offset().set(Math.max(0, sc[0]), scissorY);
-            scissor.extent().set(Math.max(0, sc[2]), Math.max(0, sc[3]));
-            vkCmdSetScissor(cmd, 0, scissor);
+            int scissorW = Math.max(0, sc[2]);
+            int scissorH = Math.max(0, sc[3]);
 
-            vkCmdSetLineWidth(cmd, state.lineWidth());
+            boolean viewportSame = dynamicStateValid
+                    && boundViewport[0] == vp[0] && boundViewport[1] == vp[1]
+                    && boundViewport[2] == vp[2] && boundViewport[3] == vp[3]
+                    && boundViewport[4] == screenFlag;
+            if (!viewportSame) {
+                VkViewport.Buffer viewport = VkViewport.calloc(1, stack)
+                        .x(vp[0])
+                        .y(toScreen ? vp[1] + (float) vp[3] : vp[1])
+                        .width(vp[2])
+                        .height(toScreen ? -(float) vp[3] : vp[3])
+                        .minDepth(0.0f)
+                        .maxDepth(1.0f);
+                vkCmdSetViewport(cmd, 0, viewport);
+                boundViewport[0] = vp[0];
+                boundViewport[1] = vp[1];
+                boundViewport[2] = vp[2];
+                boundViewport[3] = vp[3];
+                boundViewport[4] = screenFlag;
+            }
+
+            boolean scissorSame = dynamicStateValid
+                    && boundScissor[0] == scissorX && boundScissor[1] == scissorY
+                    && boundScissor[2] == scissorW && boundScissor[3] == scissorH;
+            if (!scissorSame) {
+                VkRect2D.Buffer scissor = VkRect2D.calloc(1, stack);
+                scissor.offset().set(scissorX, scissorY);
+                scissor.extent().set(scissorW, scissorH);
+                vkCmdSetScissor(cmd, 0, scissor);
+                boundScissor[0] = scissorX;
+                boundScissor[1] = scissorY;
+                boundScissor[2] = scissorW;
+                boundScissor[3] = scissorH;
+            }
+            dynamicStateValid = true;
+
+            float lineWidth = state.lineWidth();
+            if (lineWidth != boundLineWidth) {
+                vkCmdSetLineWidth(cmd, lineWidth);
+                boundLineWidth = lineWidth;
+            }
 
             if (FRAME_STATS && drawsToScreen + drawsToTarget == 1) {
                 LOGGER.info("first draw: viewport {}x{} at {},{} scissor {} {}x{} at {},{} "

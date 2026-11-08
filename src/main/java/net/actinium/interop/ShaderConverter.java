@@ -505,6 +505,7 @@ public final class ShaderConverter {
             MemoryUtil.memFree(program.uniformStaging);
             program.uniformStaging = null;
         }
+        DescriptorAllocator.forget(program);
     }
 
     private static boolean fail(ActiniumGLState.GLProgram program, String reason) {
