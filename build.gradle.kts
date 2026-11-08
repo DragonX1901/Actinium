@@ -344,7 +344,7 @@ tasks.jar {
     dependsOn(packVulkanLibs, jarJarMetadata)
     from(layout.buildDirectory.dir("vulkan-libs")) { into("META-INF/jarjar") }
     from(jarJarMetadataFile) { into("META-INF/jarjar") }
-    from("LICENSE-VulkanMod-LGPL-3.0.txt")
+    from("LICENSE", "NOTICE", "LICENSE-VulkanMod-LGPL-3.0.txt")
 }
 
 // ---------------------------------------------------------------------------

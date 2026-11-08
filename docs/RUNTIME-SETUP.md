@@ -1,6 +1,6 @@
 # Actinium runtime setup
 
-The Vulkan renderer is [VulkanMod](https://github.com/xCollateral/VulkanMod) 0.6.7 by
+The Vulkan renderer is [VulkanMod](https://github.com/xCollateral/VulkanMod) 0.6.8 by
 xCollateral (LGPL-3.0), ported from Fabric to NeoForge and compiled into Actinium under
 `net.vulkanmod`. It owns the window, the device and the render paths. Actinium configures it and
 patches the gaps in its OpenGL emulation.

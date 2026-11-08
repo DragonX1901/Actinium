@@ -9,7 +9,7 @@ displayName = "${mod_name}"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 logoFile = "logo.png"
-credits = "Vulkan renderer ported from VulkanMod 0.6.7 by xCollateral (LGPL-3.0)"
+credits = "Vulkan renderer ported from VulkanMod 0.6.8 by xCollateral (LGPL-3.0)"
 
 # The Window mixin has to apply before Minecraft creates its OpenGL context, so this config
 # must be declared here rather than discovered later.

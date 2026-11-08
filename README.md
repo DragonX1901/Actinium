@@ -7,7 +7,7 @@ Vulkan rendering, Sodium-style video settings and OpenGL compatibility fixes for
 
 ## The renderer
 
-Every frame is drawn by [VulkanMod](https://github.com/xCollateral/VulkanMod) 0.6.7 by
+Every frame is drawn by [VulkanMod](https://github.com/xCollateral/VulkanMod) 0.6.8 by
 xCollateral, ported from Fabric to NeoForge and compiled into Actinium. It shows up in the mod
 list as Actinium and nothing else: no separate renderer mod, no Mixin agent, no library entries.
 

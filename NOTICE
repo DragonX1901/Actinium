@@ -4,7 +4,7 @@ Actinium's own code is MIT licensed. The jar also contains the following.
 
 ## VulkanMod
 
-- **Version:** 0.6.7 for Minecraft 1.21.1, ported from Fabric to NeoForge
+- **Version:** 0.6.8 for Minecraft 1.21.1, ported from Fabric to NeoForge
 - **Source in this repository:** `src/main/java/net/vulkanmod`, `src/main/resources/assets/vulkanmod`
 - **Licence:** LGPL-3.0, full text in [`LICENSE-VulkanMod-LGPL-3.0.txt`](LICENSE-VulkanMod-LGPL-3.0.txt)
 - **Author:** Collateral, https://github.com/xCollateral/VulkanMod
