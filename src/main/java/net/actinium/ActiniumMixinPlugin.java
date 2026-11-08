@@ -76,6 +76,15 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.startsWith("net.actinium.mixin.compat.ImmediatelyFast")) {
+            return modLoaded("immediatelyfast");
+        }
+        if (mixinClassName.startsWith("net.actinium.mixin.compat.Flywheel")) {
+            return modLoaded("flywheel") && !rendererMode();
+        }
+        if (mixinClassName.startsWith("net.actinium.mixin.compat.Veil")) {
+            return modLoaded("veil") && !rendererMode();
+        }
         if (RENDERER_MIXINS.contains(mixinClassName)) {
             return rendererMode();
         }
@@ -140,5 +149,13 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo info) {
+    }
+
+    private static boolean modLoaded(String modId) {
+        try {
+            return net.neoforged.fml.loading.FMLLoader.getLoadingModList().getModFileById(modId) != null;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 }

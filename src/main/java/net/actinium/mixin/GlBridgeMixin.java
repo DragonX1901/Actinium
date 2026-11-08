@@ -11,12 +11,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class GlBridgeMixin {
     @Inject(method = "<init>", at = @At("TAIL"))
     private void actinium$installGlBridge(CallbackInfo ci) {
-        if (actinium$wanted()) {
+        if (GLContextBridge.wanted()) {
             GLContextBridge.install();
         }
-    }
-
-    private static boolean actinium$wanted() {
-        return GLContextBridge.setting("glBridge", GLContextBridge.setting("glContextBridge", false));
     }
 }

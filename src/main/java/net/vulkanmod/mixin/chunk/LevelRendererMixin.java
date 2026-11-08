@@ -109,6 +109,10 @@ public abstract class LevelRendererMixin {
    @Overwrite
    private void renderSectionLayer(RenderType renderType, double camX, double camY, double camZ, Matrix4f modelView, Matrix4f projectionMatrix) {
       TerrainRenderType terrainRenderType = TerrainRenderType.get(renderType);
+      if (terrainRenderType == null) {
+         return;
+      }
+
       this.worldRenderer.renderSectionLayer(terrainRenderType, camX, camY, camZ, modelView, projectionMatrix);
       ClientHooks.dispatchRenderStage(
          renderType, (LevelRenderer)(Object)this, modelView, projectionMatrix, this.ticks, this.minecraft.gameRenderer.getMainCamera(), this.getFrustum()

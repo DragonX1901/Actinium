@@ -1,5 +1,6 @@
 package net.actinium.interop.bridge;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import net.actinium.interop.GLPixelConverter;
 import net.vulkanmod.gl.VkGlBuffer;
@@ -37,6 +38,7 @@ import static org.lwjgl.system.libffi.LibFFI.ffi_type_void;
 public final class GLRouter {
     private static final Logger LOGGER = LoggerFactory.getLogger("Actinium/GLRouter");
 
+    private static final int GL_VIEWPORT = 0x0BA2;
     private static final int GL_TEXTURE_2D = 0x0DE1;
     private static final int GL_RGBA = 0x1908;
     private static final int GL_UNSIGNED_BYTE = 0x1401;
@@ -408,6 +410,12 @@ public final class GLRouter {
         switch (name) {
             case GL_TEXTURE_BINDING_2D -> MemoryUtil.memPutInt(out, VkGlTexture.getBoundTextureId());
             case GL_ACTIVE_TEXTURE -> MemoryUtil.memPutInt(out, GL_TEXTURE0 + VkGlTexture.getActiveTexture());
+            case GL_VIEWPORT -> {
+                MemoryUtil.memPutInt(out, GlStateManager.Viewport.x());
+                MemoryUtil.memPutInt(out + 4, GlStateManager.Viewport.y());
+                MemoryUtil.memPutInt(out + 8, GlStateManager.Viewport.width());
+                MemoryUtil.memPutInt(out + 12, GlStateManager.Viewport.height());
+            }
             case GL_DRAW_FRAMEBUFFER_BINDING, GL_READ_FRAMEBUFFER_BINDING -> {
                 VkGlFramebuffer framebuffer = VkGlFramebuffer.getBoundFramebuffer();
                 MemoryUtil.memPutInt(out, framebuffer != null ? framebuffer.id : 0);

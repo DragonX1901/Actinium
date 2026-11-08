@@ -22,6 +22,18 @@ public final class GLContextBridge {
     private GLContextBridge() {
     }
 
+    public static boolean wanted() {
+        return setting("glBridge", setting("glContextBridge", veilLoaded()));
+    }
+
+    private static boolean veilLoaded() {
+        try {
+            return net.neoforged.fml.loading.FMLLoader.getLoadingModList().getModFileById("veil") != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static boolean isActive() {
         return active;
     }

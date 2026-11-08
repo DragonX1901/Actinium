@@ -64,6 +64,8 @@ public final class MixinPreflight {
                         + "method the renderer replaces may stop the game from starting");
                 return;
             }
+            registered.removeIf(MixinPreflight::dropOpenGlOnly);
+            registered.forEach(MixinPreflight::stripOpenGlHandlers);
 
             Map<String, ClassNode> nodes = new HashMap<>();
             List<Replaced> replaced = new ArrayList<>();
@@ -130,13 +132,18 @@ public final class MixinPreflight {
                         continue;
                     }
 
-                    if (candidate.priority() >= info.getPriority()) {
+                    if (ownBody(candidate) || candidate.priority() >= info.getPriority()) {
                         conflicts.putIfAbsent(method.name + method.desc, candidate);
                     }
                 }
             }
         }
         return conflicts;
+    }
+
+    private static boolean ownBody(Replaced candidate) {
+        String owner = candidate.mixinClassName();
+        return owner.startsWith("net.vulkanmod.") || owner.startsWith("net.actinium.");
     }
 
     private static boolean strip(Registered entry, Map<String, Replaced> conflicts) {
@@ -193,6 +200,47 @@ public final class MixinPreflight {
             reportBlocked("removing a single injector", e);
             return null;
         }
+    }
+
+    private static final List<String> OPENGL_ONLY = List.of(
+            "foundry.veil.mixin.shader_recompile.");
+
+    private static final Map<String, Set<String>> OPENGL_HANDLERS = Map.of(
+            "foundry.veil.mixin.pipeline.client.PipelineGameRendererMixin",
+            Set.of("bindFirstPerson", "unbindFirstPerson"));
+
+    private static void stripOpenGlHandlers(Registered entry) {
+        Set<String> names = OPENGL_HANDLERS.get(entry.info().getClassName());
+        if (names == null) {
+            return;
+        }
+        ClassNode master = masterNode(entry.info());
+        if (master == null) {
+            return;
+        }
+        if (master.methods.removeIf(method -> names.contains(method.name))) {
+            stripped++;
+            LOGGER.warn("Removed {} from mixin {}: they draw through OpenGL framebuffers or shaders "
+                    + "that the Vulkan renderer cannot use", names, entry.info().getClassName());
+        }
+    }
+
+    private static boolean dropOpenGlOnly(Registered entry) {
+        String name = entry.info().getClassName();
+        for (String prefix : OPENGL_ONLY) {
+            if (!name.startsWith(prefix)) {
+                continue;
+            }
+            boolean removed = removeVia(entry.config(), entry.info());
+            removed |= entry.owningList().remove(entry.info());
+            if (removed) {
+                dropped++;
+                LOGGER.warn("Dropped mixin {}: it works on OpenGL shader programs or framebuffers "
+                        + "that do not exist under the Vulkan renderer", name);
+            }
+            return removed;
+        }
+        return false;
     }
 
     private static void drop(Registered entry, Replaced blocker, ClassNode node) {
@@ -288,8 +336,11 @@ public final class MixinPreflight {
 
     private static final Set<String> STRUCTURAL = Set.of("HEAD", "RETURN", "TAIL");
 
+    private static final String LOCAL_SUGAR = "Lcom/llamalad7/mixinextras/sugar/Local;";
+
     private static List<Injection> injections(MethodNode method) {
         List<Injection> injections = new ArrayList<>();
+        boolean readsLocals = readsLocals(method);
         for (List<AnnotationNode> group : annotationGroups(method)) {
             for (AnnotationNode annotation : group) {
                 if (!INJECTORS.contains(annotation.desc) || annotation.values == null) {
@@ -304,7 +355,12 @@ public final class MixinPreflight {
                         collectStrings(value, selectors);
                     } else if ("at".equals(key)) {
                         structural = allStructural(value);
+                    } else if ("locals".equals(key)) {
+                        readsLocals = true;
                     }
+                }
+                if (readsLocals) {
+                    structural = false;
                 }
                 for (String selector : selectors) {
                     injections.add(new Injection(selector, structural));
@@ -312,6 +368,28 @@ public final class MixinPreflight {
             }
         }
         return injections;
+    }
+
+    private static boolean readsLocals(MethodNode method) {
+        for (List<AnnotationNode>[] parameters : List.of(
+                orEmpty(method.visibleParameterAnnotations), orEmpty(method.invisibleParameterAnnotations))) {
+            for (List<AnnotationNode> annotations : parameters) {
+                if (annotations == null) {
+                    continue;
+                }
+                for (AnnotationNode annotation : annotations) {
+                    if (LOCAL_SUGAR.equals(annotation.desc)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<AnnotationNode>[] orEmpty(List<AnnotationNode>[] annotations) {
+        return annotations == null ? new List[0] : annotations;
     }
 
     private static boolean allStructural(Object at) {

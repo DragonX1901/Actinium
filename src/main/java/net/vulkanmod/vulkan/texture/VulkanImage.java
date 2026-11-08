@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongArrayMap;
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
 import java.util.Arrays;
+import net.actinium.interop.GLFormats;
 import net.vulkanmod.render.texture.ImageUploadHelper;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
@@ -622,7 +623,13 @@ public class VulkanImage {
             case 37, 41, 42, 43, 100, 126, 129 -> 4;
             case 76 -> 2;
             case 97 -> 8;
-            default -> throw new IllegalArgumentException(String.format("Unxepcted format: %s", format));
+            default -> {
+               int bytes = GLFormats.texelBytes(format);
+               if (bytes == 0) {
+                  throw new IllegalArgumentException(String.format("Unexpected format: %s", format));
+               }
+               yield bytes;
+            }
          };
       }
    }
