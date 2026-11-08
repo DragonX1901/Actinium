@@ -62,8 +62,6 @@ public final class ActiniumClient {
             case OFF -> LOGGER.warn("Interop disabled; OpenGL mods will not draw");
         }
 
-        LOGGER.info("Shader pack screen: {}", net.actinium.compat.IrisShaderScreen.isAvailable()
-                ? "Iris" : "not available, no Iris installed");
         LOGGER.info("Actinium online — {} on {}", interopMode, ctx.deviceName());
     }
 

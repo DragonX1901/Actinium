@@ -429,16 +429,6 @@ tasks.register<JavaExec>("renderTest") {
     }
 }
 
-tasks.register<JavaExec>("irisCheck") {
-    group = "verification"
-    description = "Checks that Iris's own shader pack screen resolves through the compat bridge."
-    mainClass = "net.actinium.dev.IrisBridgeCheck"
-    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
-    val irisJar = project.findProperty("iris") as String?
-    classpath = sourceSets.main.get().runtimeClasspath + smokeTestRuntime +
-            (if (irisJar != null) files(irisJar) else files())
-}
-
 tasks.register("listConfigs") {
     val names = configurations.names.sorted()
     doLast { names.forEach(::println) }
