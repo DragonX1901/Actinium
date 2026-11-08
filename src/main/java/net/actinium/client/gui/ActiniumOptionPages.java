@@ -118,7 +118,8 @@ public final class ActiniumOptionPages {
                 })
                 .build();
 
-        int maxGuiScale = minecraft.getWindow().calculateScale(0, minecraft.isEnforceUnicode());
+        int maxGuiScale = Math.max(minecraft.getWindow().calculateScale(0, minecraft.isEnforceUnicode()),
+                minecraft.options.guiScale().get());
         Option<Integer> guiScale = OptionImpl.<Options, Integer>of(vanilla)
                 .name(Component.translatable("options.guiScale"))
                 .tooltip(Component.translatable("actinium.options.guiScale.tooltip"))

@@ -5,7 +5,7 @@
 .gradle
 
 # Gradle build folder
-build
+/build/
 
 # IntelliJ
 out/

@@ -9,6 +9,7 @@ import org.lwjgl.vulkan.VkCommandBuffer;
 public abstract class SpriteUpdateUtil {
    private static boolean doUpload = true;
    private static final Set<VulkanImage> transitionedLayouts = new HashSet<>();
+   private static VulkanImage lastTransitioned;
 
    public static void setDoUpload(boolean b) {
       doUpload = b;
@@ -19,7 +20,10 @@ public abstract class SpriteUpdateUtil {
    }
 
    public static void addTransitionedLayout(VulkanImage image) {
-      transitionedLayouts.add(image);
+      if (image != lastTransitioned) {
+         lastTransitioned = image;
+         transitionedLayouts.add(image);
+      }
    }
 
    public static void transitionLayouts() {
@@ -47,6 +51,7 @@ public abstract class SpriteUpdateUtil {
             }
          });
          transitionedLayouts.clear();
+         lastTransitioned = null;
       }
    }
 }

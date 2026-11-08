@@ -421,7 +421,7 @@ public class DrawBuffers {
       private static final int CAPACITY = 512 * QuadFacing.COUNT;
       final long commands = MemoryUtil.nmemAlignedAlloc(32L, (long)CAPACITY * CMD_STRIDE);
       final long sectionData = MemoryUtil.nmemAlignedAlloc(16L, (long)CAPACITY * OcclusionCuller.SECTION_STRIDE);
-      final RenderSection[] owners = new RenderSection[CAPACITY];
+      final int[] owners = new int[CAPACITY];
       int count;
 
       void clear() {
@@ -445,7 +445,7 @@ public class DrawBuffers {
             MemoryUtil.memPutFloat(ptr + 4L, y);
             MemoryUtil.memPutFloat(ptr + 8L, z);
             MemoryUtil.memPutInt(ptr + 12L, flags);
-            this.owners[k] = section;
+            this.owners[k] = section.index;
          }
       }
 

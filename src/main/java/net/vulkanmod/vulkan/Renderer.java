@@ -74,7 +74,7 @@ public class Renderer {
    private Framebuffer boundFramebuffer;
    private RenderPass boundRenderPass;
    private static int currentFrame = 0;
-   private static int imageIndex;
+   private static int imageIndex = 0;
    private static int lastReset = -1;
    private VkCommandBuffer currentCmdBuffer;
    private boolean recordingCmds = false;

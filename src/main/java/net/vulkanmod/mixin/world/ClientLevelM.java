@@ -6,17 +6,21 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.RandomSupport;
+import net.minecraft.world.level.levelgen.SingleThreadedRandomSource;
 import net.vulkanmod.interfaces.biome.ClientLevelExtended;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ClientLevel.class)
@@ -61,5 +65,13 @@ public abstract class ClientLevelM implements ClientLevelExtended {
    )
    private boolean skipBiomeLookup(BlockState state, BlockGetter level, BlockPos pos, Operation<Boolean> original) {
       return !this.ambientParticleBiomes || original.call(state, level, pos);
+   }
+
+   @Redirect(
+      method = "animateTick",
+      at = @At(value = "INVOKE", target = "Lnet/minecraft/util/RandomSource;create()Lnet/minecraft/util/RandomSource;")
+   )
+   private RandomSource localAnimateRandom() {
+      return new SingleThreadedRandomSource(RandomSupport.generateUniqueSeed());
    }
 }

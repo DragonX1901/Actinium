@@ -9,7 +9,7 @@ import org.apache.logging.log4j.Logger;
 
 public class Initializer {
    public static final Logger LOGGER = LogManager.getLogger("VulkanMod");
-   private static final String VERSION = "0.6.7";
+   private static final String VERSION = "0.6.8";
    public static final Config CONFIG = loadConfig(FMLPaths.CONFIGDIR.get().resolve("vulkanmod_settings.json"));
    private static boolean platformReady;
 
