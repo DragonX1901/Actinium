@@ -1,5 +1,7 @@
 package net.vulkanmod.render.chunk.build.renderer;
 
+import net.actinium.compat.VanillaBlockHooks;
+
 import net.vulkanmod.render.chunk.build.frapi.api.material.BlendMode;
 import net.vulkanmod.render.chunk.build.frapi.api.material.RenderMaterial;
 import net.vulkanmod.render.chunk.build.frapi.api.material.ShadeMode;
@@ -52,6 +54,10 @@ public class BlockRenderer extends AbstractBlockRenderContext {
       this.seed = blockState.getSeed(blockPos);
       BakedModel model = Minecraft.getInstance().getBlockRenderer().getBlockModel(blockState);
       BlockAndTintGetter renderRegion = this.renderRegion;
+      if (VanillaBlockHooks.isActive() && !VanillaBlockHooks.allowsBlock(renderRegion, model, blockState, blockPos, this.random, this.seed)) {
+         return;
+      }
+
       ModelData modelData = model.getModelData(renderRegion, blockPos, blockState, renderRegion.getModelData(blockPos));
       Vec3 offset = blockState.getOffset(renderRegion, blockPos);
       pos.add((float)offset.x, (float)offset.y, (float)offset.z);

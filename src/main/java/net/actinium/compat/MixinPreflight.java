@@ -85,6 +85,7 @@ public final class MixinPreflight {
                 }
             }
 
+            findBlockHooks(registered, nodes);
             LOGGER.debug("Checked {} mixins; {} methods are replaced outright", registered.size(),
                     replaced.size());
             if (replaced.isEmpty()) {
@@ -105,6 +106,36 @@ public final class MixinPreflight {
             LOGGER.warn("Could not check mixins against the renderer; a mod that injects into a "
                     + "replaced method may stop the game from starting", e);
         }
+    }
+
+    private static void findBlockHooks(List<Registered> registered, Map<String, ClassNode> nodes) {
+        for (Registered entry : registered) {
+            String name = entry.info().getClassName();
+            List<String> targets = targets(entry.info());
+            boolean blocks = targets.contains("net/minecraft/client/renderer/block/ModelBlockRenderer");
+            boolean fluids = targets.contains("net/minecraft/client/renderer/block/LiquidBlockRenderer");
+            if (name.startsWith("net.vulkanmod.") || name.startsWith("net.actinium.") || !blocks && !fluids) {
+                continue;
+            }
+            ClassNode node = nodes.get(name);
+            if (node == null) {
+                continue;
+            }
+            for (MethodNode method : node.methods) {
+                for (Injection injection : injections(method)) {
+                    if (!injection.atHead()) {
+                        continue;
+                    }
+                    String target = methodName(injection.selector());
+                    if (blocks && "tesselateBlock".equals(target)) {
+                        VanillaBlockHooks.register(name);
+                    } else if (fluids && "tesselate".equals(target)) {
+                        VanillaBlockHooks.registerFluid(name);
+                    }
+                }
+            }
+        }
+        VanillaBlockHooks.report();
     }
 
     public static int droppedCount() {
@@ -331,10 +362,11 @@ public final class MixinPreflight {
         return targets;
     }
 
-    private record Injection(String selector, boolean survivesReplacement) {
+    private record Injection(String selector, boolean survivesReplacement, boolean atHead) {
     }
 
     private static final Set<String> STRUCTURAL = Set.of("HEAD", "RETURN", "TAIL");
+    private static final String WRAP_METHOD = "Lcom/llamalad7/mixinextras/injector/wrapmethod/WrapMethod;";
 
     private static final String LOCAL_SUGAR = "Lcom/llamalad7/mixinextras/sugar/Local;";
 
@@ -348,6 +380,7 @@ public final class MixinPreflight {
                 }
                 List<String> selectors = new ArrayList<>();
                 boolean structural = true;
+                boolean atHead = WRAP_METHOD.equals(annotation.desc);
                 for (int i = 0; i + 1 < annotation.values.size(); i += 2) {
                     String key = (String) annotation.values.get(i);
                     Object value = annotation.values.get(i + 1);
@@ -355,6 +388,7 @@ public final class MixinPreflight {
                         collectStrings(value, selectors);
                     } else if ("at".equals(key)) {
                         structural = allStructural(value);
+                        atHead = atHead || anyHead(value);
                     } else if ("locals".equals(key)) {
                         readsLocals = true;
                     }
@@ -363,7 +397,7 @@ public final class MixinPreflight {
                     structural = false;
                 }
                 for (String selector : selectors) {
-                    injections.add(new Injection(selector, structural));
+                    injections.add(new Injection(selector, structural, atHead));
                 }
             }
         }
@@ -390,6 +424,25 @@ public final class MixinPreflight {
     @SuppressWarnings("unchecked")
     private static List<AnnotationNode>[] orEmpty(List<AnnotationNode>[] annotations) {
         return annotations == null ? new List[0] : annotations;
+    }
+
+    private static boolean anyHead(Object at) {
+        List<Object> points = new ArrayList<>();
+        if (at instanceof List<?> list) {
+            points.addAll(list);
+        } else {
+            points.add(at);
+        }
+        for (Object point : points) {
+            if (point instanceof AnnotationNode node && node.values != null) {
+                for (int i = 0; i + 1 < node.values.size(); i += 2) {
+                    if ("value".equals(node.values.get(i)) && "HEAD".equals(String.valueOf(node.values.get(i + 1)))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean allStructural(Object at) {

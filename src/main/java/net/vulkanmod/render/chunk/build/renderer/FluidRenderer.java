@@ -1,5 +1,6 @@
 package net.vulkanmod.render.chunk.build.renderer;
 
+import net.actinium.compat.VanillaBlockHooks;
 import net.actinium.perf.SpriteActivity;
 
 import net.minecraft.client.Minecraft;
@@ -51,6 +52,10 @@ public class FluidRenderer {
    }
 
    public void renderLiquid(BlockState blockState, FluidState fluidState, BlockPos blockPos) {
+      if (VanillaBlockHooks.isFluidActive() && !VanillaBlockHooks.allowsFluid(this.resources.getRegion(), blockPos, blockState, fluidState)) {
+         return;
+      }
+
       TerrainRenderType renderType = TerrainRenderType.get(ItemBlockRenderTypes.getRenderLayer(fluidState));
       renderType = TerrainRenderType.getRemapped(renderType);
       TerrainBufferBuilder bufferBuilder = this.resources.builderPack.builder(renderType).getBufferBuilder(QuadFacing.UNDEFINED.ordinal());

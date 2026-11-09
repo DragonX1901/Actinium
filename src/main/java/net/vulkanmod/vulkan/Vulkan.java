@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan;
 
+import net.actinium.core.MemoryStackSize;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
@@ -103,6 +104,7 @@ public class Vulkan {
    }
 
    public static void initVulkan(long window) {
+      MemoryStackSize.ensure();
       createInstance();
       setupDebugMessenger();
       createSurface(window);
