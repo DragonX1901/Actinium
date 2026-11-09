@@ -157,14 +157,21 @@ public class TaskDispatcher {
          if (compileResult.fullUpdate) {
             EnumMap<TerrainRenderType, UploadBuffer> renderLayers = compileResult.renderedLayers;
 
+            int layerMask = 0;
             for (TerrainRenderType renderType : TerrainRenderType.VALUES) {
                UploadBuffer uploadBuffer = renderLayers.get(renderType);
                if (uploadBuffer != null) {
+                  if (uploadBuffer.hasGeometry()) {
+                     layerMask |= 1 << renderType.ordinal();
+                  }
+
                   drawBuffers.upload(section, uploadBuffer, renderType);
                } else {
                   section.resetDrawParameters(renderType);
                }
             }
+
+            section.layerMask = (byte)layerMask;
 
             return compileResult.updateSection();
          } else {

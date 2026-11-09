@@ -147,7 +147,7 @@ public class OcclusionCuller {
       this.reducePipeline = new ComputePipeline("/assets/vulkanmod/shaders/compute/hiz_reduce.comp", REDUCE_BINDINGS, 32);
       this.cullPipeline = new ComputePipeline("/assets/vulkanmod/shaders/compute/occlusion_cull.comp", CULL_BINDINGS, 80);
       this.sampler = createSampler();
-      this.compact = Vulkan.getDevice().isDrawIndirectCountSupported();
+      this.compact = Vulkan.getDevice().isDrawIndirectCountSupported() && !Vulkan.getDevice().isSoftwareRenderer();
       Initializer.LOGGER.info("Occlusion culling ready ({})", this.compact ? "compacted indirect count" : "instance count");
    }
 
@@ -334,6 +334,10 @@ public class OcclusionCuller {
 
    public void addCommands(int firstSlot, int count, long sectionsPtr, long commandsPtr, int[] owners) {
       FrameData data = this.frame;
+      if (data.resolved) {
+         return;
+      }
+
       int end = firstSlot + count;
       data.ensureCapacity(end);
       MemoryUtil.memCopy(sectionsPtr, data.sections.getDataPtr() + HEADER_SIZE + (long)firstSlot * SECTION_STRIDE, (long)count * SECTION_STRIDE);

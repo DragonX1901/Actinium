@@ -1,5 +1,7 @@
 package net.vulkanmod.render.chunk.build.renderer;
 
+import net.actinium.perf.SpriteActivity;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
@@ -98,6 +100,9 @@ public class FluidRenderer {
       BlockAndTintGetter region = this.resources.getRegion();
       int color = fluidType.getTintColor(fluidState, region, blockPos);
       TextureAtlasSprite[] sprites = FluidSpriteCache.getFluidSprites(region, blockPos, fluidState);
+      for (TextureAtlasSprite sprite : sprites) {
+         SpriteActivity.collect(sprite);
+      }
       float r = ColorUtil.ARGB.unpackR(color);
       float g = ColorUtil.ARGB.unpackG(color);
       float b = ColorUtil.ARGB.unpackB(color);

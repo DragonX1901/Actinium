@@ -1,9 +1,14 @@
 package net.vulkanmod.interfaces;
 
+import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
 public interface ExtendedVertexBuilder {
    static ExtendedVertexBuilder of(VertexConsumer vertexConsumer) {
+      if (vertexConsumer != null && vertexConsumer.getClass() == BufferBuilder.class) {
+         return (ExtendedVertexBuilder)vertexConsumer;
+      }
+
       return vertexConsumer instanceof ExtendedVertexBuilder ? (ExtendedVertexBuilder)vertexConsumer : null;
    }
 

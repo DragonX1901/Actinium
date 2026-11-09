@@ -1,5 +1,8 @@
 package net.vulkanmod.render.chunk.build.task;
 
+import net.actinium.perf.SpriteActivity;
+import net.minecraft.client.renderer.texture.SpriteContents;
+
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -20,6 +23,7 @@ public class CompileResult {
    VisibilitySet visibilitySet;
    QuadSorter.SortState transparencyState;
    CompiledSection compiledSection;
+   SpriteContents[] animatedSprites = SpriteActivity.NONE;
 
    CompileResult(RenderSection renderSection, boolean fullUpdate) {
       this.renderSection = renderSection;
@@ -33,7 +37,8 @@ public class CompileResult {
       boolean blockEntities = !this.blockEntities.isEmpty();
       boolean graphChanged = section.getVisibility() != visibility
          || section.isCompletelyEmpty() != empty
-         || section.containsBlockEntities() != blockEntities;
+         || section.containsBlockEntities() != blockEntities
+         || (section.getAnimatedSprites().length > 0) != (this.compiledSection.getAnimatedSprites().length > 0);
       section.updateGlobalBlockEntities(this.globalBlockEntities);
       section.setCompiledSection(this.compiledSection);
       section.setVisibility(visibility);

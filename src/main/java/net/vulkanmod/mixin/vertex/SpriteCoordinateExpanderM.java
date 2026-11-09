@@ -1,5 +1,7 @@
 package net.vulkanmod.mixin.vertex;
 
+import net.actinium.perf.SpriteActivity;
+
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.renderer.SpriteCoordinateExpander;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
@@ -24,6 +26,7 @@ public class SpriteCoordinateExpanderM implements ExtendedVertexBuilder {
 
    @Inject(method = "<init>", at = @At("RETURN"))
    private void getExtBuilder(VertexConsumer vertexConsumer, TextureAtlasSprite textureAtlasSprite, CallbackInfo ci) {
+      SpriteActivity.markVisible(textureAtlasSprite.contents());
       if (vertexConsumer instanceof ExtendedVertexBuilder) {
          this.extDelegate = (ExtendedVertexBuilder)vertexConsumer;
          this.canUseFastVertex = true;

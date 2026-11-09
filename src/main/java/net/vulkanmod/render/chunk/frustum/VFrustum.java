@@ -39,6 +39,13 @@ public class VFrustum {
       return this;
    }
 
+   public VFrustum offsetBack(float distance) {
+      this.camX = this.camX - this.viewVector.x() * distance;
+      this.camY = this.camY - this.viewVector.y() * distance;
+      this.camZ = this.camZ - this.viewVector.z() * distance;
+      return this;
+   }
+
    public void setCamOffset(double camX, double camY, double camZ) {
       this.camX = camX;
       this.camY = camY;

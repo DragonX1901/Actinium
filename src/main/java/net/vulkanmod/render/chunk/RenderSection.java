@@ -1,5 +1,8 @@
 package net.vulkanmod.render.chunk;
 
+import net.actinium.perf.SpriteActivity;
+import net.minecraft.client.renderer.texture.SpriteContents;
+
 import com.google.common.collect.Sets;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.Collection;
@@ -50,6 +53,8 @@ public class RenderSection {
    public byte steps;
    public byte directionChanges;
    public final int index;
+   public byte layerMask;
+   private SpriteContents[] animatedSprites = SpriteActivity.NONE;
 
    public RenderSection(int index, int x, int y, int z) {
       this.index = index;
@@ -261,6 +266,7 @@ public class RenderSection {
    }
 
    public void resetDrawParameters(TerrainRenderType renderType) {
+      this.layerMask = (byte)(this.layerMask & ~(1 << renderType.ordinal()));
       for (int i = 0; i < QuadFacing.COUNT; i++) {
          DrawBuffers drawBuffers = this.chunkArea.getDrawBuffers();
          long ptr = DrawParametersBuffer.getParamsPtr(drawBuffers.getDrawParamsPtr(), this.inAreaIndex, renderType.ordinal(), i);
@@ -343,6 +349,8 @@ public class RenderSection {
       this.visibility = 0L;
       this.completelyEmpty = true;
       OcclusionCuller.forget(this.index);
+      this.layerMask = 0;
+      this.animatedSprites = SpriteActivity.NONE;
       this.resetDrawParameters();
    }
 
@@ -362,11 +370,20 @@ public class RenderSection {
    public void setDirty(boolean playerChanged) {
       this.playerChanged = playerChanged || this.dirty && this.playerChanged;
       this.dirty = true;
-      WorldRenderer.getInstance().scheduleGraphUpdate();
+      if (playerChanged) {
+         WorldRenderer.getInstance().scheduleGraphUpdate();
+      } else {
+         WorldRenderer.getInstance().scheduleDeferredGraphUpdate();
+      }
    }
 
    public void setCompiledSection(CompiledSection compiledSection) {
       this.compileStatus.compiledSection = compiledSection;
+      this.animatedSprites = compiledSection.getAnimatedSprites();
+   }
+
+   public SpriteContents[] getAnimatedSprites() {
+      return this.animatedSprites;
    }
 
    public boolean setLastFrame(short i) {

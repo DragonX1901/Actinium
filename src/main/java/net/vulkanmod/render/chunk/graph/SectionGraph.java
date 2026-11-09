@@ -26,6 +26,7 @@ import net.vulkanmod.render.profiling.Profiler;
 import org.joml.Vector3d;
 
 public class SectionGraph {
+   public static final float APEX_OFFSET = 8.0F;
    Minecraft minecraft;
    private final Level level;
    private final SectionGrid sectionGrid;
@@ -36,6 +37,7 @@ public class SectionGraph {
    private short lastFrame = 0;
    private final ResettableQueue<RenderSection> blockEntitiesSections = new ResettableQueue<>();
    private final ResettableQueue<RenderSection> rebuildQueue = new ResettableQueue<>();
+   private final ResettableQueue<RenderSection> animatedSections = new ResettableQueue<>();
    private VFrustum frustum;
    public RenderRegionBuilder renderRegionCache;
    int nonEmptyChunks;
@@ -61,7 +63,7 @@ public class SectionGraph {
       }
 
       profiler.push("frustum");
-      this.frustum = ((FrustumMixed)frustum).customFrustum().offsetToFullyIncludeCameraCube(8);
+      this.frustum = ((FrustumMixed)frustum).customFrustum().offsetToFullyIncludeCameraCube(8).offsetBack(APEX_OFFSET);
       this.sectionGrid.updateFrustumVisibility(this.frustum);
       profiler.pop();
       mcProfiler.push("partial_update");
@@ -134,6 +136,7 @@ public class SectionGraph {
 
    private void initUpdate() {
       this.resetUpdateQueues();
+      this.sectionQueue.ensureCapacity(this.sectionGrid.getSectionCount());
       this.lastFrame++;
       this.nonEmptyChunks = 0;
    }
@@ -144,6 +147,7 @@ public class SectionGraph {
       this.sectionQueue.clear();
       this.blockEntitiesSections.clear();
       this.rebuildQueue.clear();
+      this.animatedSections.clear();
    }
 
    private void updateRenderChunks() {
@@ -156,6 +160,10 @@ public class SectionGraph {
                renderSection.getChunkArea().sectionQueue.add(renderSection);
                this.chunkAreaQueue.add(renderSection.getChunkArea());
                this.nonEmptyChunks++;
+               if (renderSection.getAnimatedSprites().length > 0) {
+                  this.animatedSections.ensureCapacity(1);
+                  this.animatedSections.add(renderSection);
+               }
             }
 
             if (renderSection.containsBlockEntities()) {
@@ -212,7 +220,6 @@ public class SectionGraph {
 
    private void visitAdjacentNodes(RenderSection renderSection, byte dirs) {
       dirs = (byte)(dirs & renderSection.adjDirs);
-      this.sectionQueue.ensureCapacity(6);
       RenderSection relativeSection = renderSection.adjDown;
       this.checkToAdd(renderSection, relativeSection, (byte)0, (byte)1, dirs);
       relativeSection = renderSection.adjUp;
@@ -241,6 +248,10 @@ public class SectionGraph {
                renderSection.getChunkArea().sectionQueue.add(renderSection);
                this.chunkAreaQueue.add(renderSection.getChunkArea());
                this.nonEmptyChunks++;
+               if (renderSection.getAnimatedSprites().length > 0) {
+                  this.animatedSections.ensureCapacity(1);
+                  this.animatedSections.add(renderSection);
+               }
             }
 
             if (renderSection.isDirty()) {
@@ -274,6 +285,10 @@ public class SectionGraph {
 
    public AreaSetQueue getChunkAreaQueue() {
       return this.chunkAreaQueue;
+   }
+
+   public ResettableQueue<RenderSection> getAnimatedSections() {
+      return this.animatedSections;
    }
 
    public ResettableQueue<RenderSection> getSectionQueue() {

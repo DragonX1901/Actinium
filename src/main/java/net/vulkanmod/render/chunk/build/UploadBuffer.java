@@ -38,6 +38,20 @@ public class UploadBuffer {
       }
    }
 
+   public boolean hasGeometry() {
+      if (this.indexOnly) {
+         return this.indexCount > 0;
+      }
+
+      for (ByteBuffer buffer : this.vertexBuffers) {
+         if (buffer != null) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
    public int indexCount() {
       return this.indexCount;
    }

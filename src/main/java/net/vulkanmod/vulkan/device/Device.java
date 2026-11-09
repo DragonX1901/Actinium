@@ -157,6 +157,10 @@ public class Device {
       return var7;
    }
 
+   public boolean isSoftwareRenderer() {
+      return this.properties.deviceType() == VK10.VK_PHYSICAL_DEVICE_TYPE_CPU;
+   }
+
    public boolean isDrawIndirectCountSupported() {
       return this.drawIndirectSupported && this.availableFeatures12.drawIndirectCount();
    }

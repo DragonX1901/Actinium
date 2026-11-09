@@ -27,6 +27,7 @@ public class Config {
    public int builderThreads = 0;
    public boolean backFaceCulling = true;
    public boolean textureAnimations = true;
+   public boolean animateOnlyVisibleTextures = true;
    private static Path CONFIG_PATH;
    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().excludeFieldsWithModifiers(new int[]{2}).create();
 

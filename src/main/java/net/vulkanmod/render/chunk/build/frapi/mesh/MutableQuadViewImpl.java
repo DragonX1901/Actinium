@@ -1,5 +1,7 @@
 package net.vulkanmod.render.chunk.build.frapi.mesh;
 
+import net.actinium.perf.SpriteActivity;
+
 import net.vulkanmod.render.chunk.build.frapi.api.material.RenderMaterial;
 import net.vulkanmod.render.chunk.build.frapi.api.mesh.QuadEmitter;
 import net.vulkanmod.render.chunk.build.frapi.api.mesh.QuadView;
@@ -48,6 +50,7 @@ public abstract class MutableQuadViewImpl extends QuadViewImpl implements QuadEm
    }
 
    public MutableQuadViewImpl spriteBake(TextureAtlasSprite sprite, int bakeFlags) {
+      SpriteActivity.collect(sprite);
       TextureHelper.bakeSprite(this, sprite, bakeFlags);
       return this;
    }
@@ -136,6 +139,7 @@ public abstract class MutableQuadViewImpl extends QuadViewImpl implements QuadEm
    }
 
    public final MutableQuadViewImpl fromVanilla(BakedQuad quad, RenderMaterial material, @Nullable Direction cullFace) {
+      SpriteActivity.collect(quad.getSprite());
       this.fromVanilla(quad.getVertices(), 0);
       this.data[this.baseIndex + 0] = EncodingFormat.cullFace(0, cullFace);
       this.nominalFace(quad.getDirection());

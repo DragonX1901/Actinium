@@ -92,12 +92,6 @@ public final class ImmediatelyFastCompat {
                 LOGGER.info("Turned off ImmediatelyFast's fast buffer upload: it calls glBufferSubData "
                         + "on an OpenGL context that does not exist under Vulkan");
             }
-            Field hudBatching = runtimeConfig.getClass().getField("hud_batching");
-            if (hudBatching.getBoolean(runtimeConfig)) {
-                hudBatching.setBoolean(runtimeConfig, false);
-                LOGGER.info("Turned off ImmediatelyFast's HUD batching: under Vulkan its batched HUD "
-                        + "draws cover the world in black");
-            }
         } catch (ReflectiveOperationException | LinkageError e) {
             LOGGER.warn("Could not turn off ImmediatelyFast's fast buffer upload", e);
         }

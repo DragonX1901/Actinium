@@ -1,5 +1,8 @@
 package net.vulkanmod.render.chunk.build.task;
 
+import net.actinium.perf.SpriteActivity;
+import net.minecraft.client.renderer.texture.SpriteContents;
+
 import com.google.common.collect.Lists;
 import java.util.List;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -12,6 +15,11 @@ public class CompiledSection {
    final List<BlockEntity> blockEntities = Lists.newArrayList();
    @Nullable
    QuadSorter.SortState transparencyState;
+   SpriteContents[] animatedSprites = SpriteActivity.NONE;
+
+   public SpriteContents[] getAnimatedSprites() {
+      return this.animatedSprites;
+   }
 
    public boolean hasTransparencyState() {
       return this.transparencyState != null;

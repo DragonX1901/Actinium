@@ -1,5 +1,7 @@
 package net.vulkanmod.render.chunk;
 
+import net.actinium.perf.SpriteActivity;
+
 import com.google.common.collect.Sets;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -43,6 +45,7 @@ import net.vulkanmod.render.chunk.build.task.ChunkTask;
 import net.vulkanmod.render.chunk.build.task.TaskDispatcher;
 import net.vulkanmod.render.chunk.cull.OcclusionCuller;
 import net.vulkanmod.render.chunk.graph.SectionGraph;
+import net.vulkanmod.render.chunk.util.ResettableQueue;
 import net.vulkanmod.render.chunk.util.StaticQueue;
 import net.vulkanmod.render.profiling.BuildTimeProfiler;
 import net.vulkanmod.render.profiling.Profiler;
@@ -79,6 +82,10 @@ public class WorldRenderer {
    private float lastCameraX;
    private float lastCameraY;
    private float lastCameraZ;
+   private static final long DEFERRED_GRAPH_UPDATE_NANOS = 50_000_000L;
+   private boolean sectionsChanged;
+   private long lastGraphUpdate;
+   private final Matrix4f lastProjection = new Matrix4f();
    private float lastCamRotX;
    private float lastCamRotY;
    private SectionGrid sectionGrid;
@@ -175,10 +182,28 @@ public class WorldRenderer {
       float d_xRot = Math.abs(camera.getXRot() - this.lastCamRotX);
       float d_yRot = Math.abs(camera.getYRot() - this.lastCamRotY);
       cameraMoved |= d_xRot > 2.0F || d_yRot > 2.0F;
-      cameraMoved |= cameraX != this.lastCameraX || cameraY != this.lastCameraY || cameraZ != this.lastCameraZ;
+      Matrix4f projection = RenderSystem.getProjectionMatrix();
+      float dx = cameraX - this.lastCameraX;
+      float dy = cameraY - this.lastCameraY;
+      float dz = cameraZ - this.lastCameraZ;
+      float scale = Math.max(Math.abs(projection.m00()), Math.abs(projection.m11()));
+      float slack = SectionGraph.APEX_OFFSET * 0.9F / (float)Math.sqrt(1.0F + scale * scale);
+      cameraMoved |= dx * dx + dy * dy + dz * dz > slack * slack;
+      cameraMoved |= SectionPos.posToSectionCoord(this.lastCameraX) != sectionX
+         || SectionPos.posToSectionCoord(this.lastCameraY) != sectionY
+         || SectionPos.posToSectionCoord(this.lastCameraZ) != sectionZ;
+      cameraMoved |= !projection.equals(this.lastProjection, 1.0E-4F);
+      long now = System.nanoTime();
+      if (this.sectionsChanged && now - this.lastGraphUpdate >= DEFERRED_GRAPH_UPDATE_NANOS) {
+         this.graphNeedsUpdate = true;
+      }
+
       this.graphNeedsUpdate |= cameraMoved;
       if (!isCapturedFrustum && this.graphNeedsUpdate()) {
          this.graphNeedsUpdate = false;
+         this.sectionsChanged = false;
+         this.lastGraphUpdate = now;
+         this.lastProjection.set(projection);
          this.lastCameraX = cameraX;
          this.lastCameraY = cameraY;
          this.lastCameraZ = cameraZ;
@@ -197,6 +222,18 @@ public class WorldRenderer {
       profiler.pop();
    }
 
+   public void markVisibleSprites() {
+      if (this.sectionGraph == null) {
+         return;
+      }
+
+      ResettableQueue<RenderSection> sections = this.sectionGraph.getAnimatedSections();
+
+      for (int i = 0, size = sections.size(); i < size; i++) {
+         SpriteActivity.markVisible(sections.get(i).getAnimatedSprites());
+      }
+   }
+
    public void uploadSections() {
       this.minecraft.getProfiler().push("upload");
       Profiler profiler = Profiler.getMainProfiler();
@@ -204,7 +241,7 @@ public class WorldRenderer {
 
       try {
          if (this.taskDispatcher.updateSections()) {
-            this.graphNeedsUpdate = true;
+            this.sectionsChanged = true;
          }
       } catch (Exception e) {
          Initializer.LOGGER.error(e.getMessage());
@@ -485,6 +522,10 @@ public class WorldRenderer {
 
    public void scheduleGraphUpdate() {
       this.graphNeedsUpdate = true;
+   }
+
+   public void scheduleDeferredGraphUpdate() {
+      this.sectionsChanged = true;
    }
 
    public boolean graphNeedsUpdate() {

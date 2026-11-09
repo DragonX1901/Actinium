@@ -28,24 +28,34 @@ public class GlStateManagerM {
    @Overwrite(remap = false)
    public static void _disableBlend() {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.BLEND.mode.enabled = false;
       VRenderSystem.disableBlend();
    }
 
    @Overwrite(remap = false)
    public static void _enableBlend() {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.BLEND.mode.enabled = true;
       VRenderSystem.enableBlend();
    }
 
    @Overwrite(remap = false)
    public static void _blendFunc(int i, int j) {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.BLEND.srcRgb = i;
+      GlStateManager.BLEND.dstRgb = j;
+      GlStateManager.BLEND.srcAlpha = i;
+      GlStateManager.BLEND.dstAlpha = j;
       VRenderSystem.blendFunc(i, j);
    }
 
    @Overwrite(remap = false)
    public static void _blendFuncSeparate(int i, int j, int k, int l) {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.BLEND.srcRgb = i;
+      GlStateManager.BLEND.dstRgb = j;
+      GlStateManager.BLEND.srcAlpha = k;
+      GlStateManager.BLEND.dstAlpha = l;
       VRenderSystem.blendFuncSeparate(i, j, k, l);
    }
 
@@ -209,24 +219,28 @@ public class GlStateManagerM {
    @Overwrite(remap = false)
    public static void _disableDepthTest() {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.DEPTH.mode.enabled = false;
       VRenderSystem.disableDepthTest();
    }
 
    @Overwrite(remap = false)
    public static void _enableDepthTest() {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.DEPTH.mode.enabled = true;
       VRenderSystem.enableDepthTest();
    }
 
    @Overwrite(remap = false)
    public static void _depthFunc(int i) {
       RenderSystem.assertOnRenderThreadOrInit();
+      GlStateManager.DEPTH.func = i;
       VRenderSystem.depthFunc(i);
    }
 
    @Overwrite(remap = false)
    public static void _depthMask(boolean bl) {
       RenderSystem.assertOnRenderThread();
+      GlStateManager.DEPTH.mask = bl;
       VRenderSystem.depthMask(bl);
    }
 

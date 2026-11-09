@@ -1,5 +1,7 @@
 package net.vulkanmod.render.chunk.build.task;
 
+import net.actinium.perf.SpriteActivity;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.chunk.VisGraph;
@@ -53,6 +55,7 @@ public class BuildTask extends ChunkTask {
          compiledSection.blockEntities.addAll(compileResult.blockEntities);
          compiledSection.transparencyState = compileResult.transparencyState;
          compiledSection.isCompletelyEmpty = compileResult.renderedLayers.isEmpty();
+         compiledSection.animatedSprites = compileResult.animatedSprites;
          compileResult.compiledSection = compiledSection;
          if (this.cancelled.get()) {
             compileResult.renderedLayers.values().forEach(UploadBuffer::release);
@@ -84,6 +87,7 @@ public class BuildTask extends ChunkTask {
       BlockRenderer blockRenderer = builderResources.blockRenderer;
       FluidRenderer fluidRenderer = builderResources.fluidRenderer;
       MutableBlockPos blockPos = new MutableBlockPos();
+      SpriteActivity.beginSection();
 
       for (int y = 0; y < 16; y++) {
          for (int z = 0; z < 16; z++) {
@@ -113,6 +117,8 @@ public class BuildTask extends ChunkTask {
             }
          }
       }
+
+      compileResult.animatedSprites = SpriteActivity.endSection();
 
       TerrainBuilder trasnlucentTerrainBuilder = bufferBuilders.builder(TerrainRenderType.TRANSLUCENT);
       if (trasnlucentTerrainBuilder.getBufferBuilder(QuadFacing.UNDEFINED.ordinal()).getVertices() > 0) {

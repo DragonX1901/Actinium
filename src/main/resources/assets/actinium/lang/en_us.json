@@ -115,6 +115,8 @@
   "actinium.options.particles.tooltip": "How many particles are spawned. Decreased and Minimal help in heavy redstone or combat.",
   "actinium.options.biomeBlend.tooltip": "Blends grass, foliage and water colour across biome borders. Wider blends make chunk rebuilds slower.",
   "actinium.options.entityDistance.tooltip": "How far away entities are drawn, relative to the default. Lower it for crowded farms.",
+  "actinium.options.animateOnlyVisibleTextures": "Animate Only Visible Textures",
+  "actinium.options.animateOnlyVisibleTextures.tooltip": "Only updates animated textures that were on screen in the last frame. Saves the upload for water, lava, fire and modded animations you can't see. Turn off if an animation on some modded block looks frozen.",
   "actinium.options.textureAnimations.tooltip": "Animates water, lava, fire and other animated textures. Off saves the upload each animated frame costs.",
   "actinium.options.deviceSelector.tooltip": "The GPU the renderer uses. Auto prefers a discrete card.",
   "actinium.options.deviceSelector.tooltip.current": "The GPU the renderer uses. Auto prefers a discrete card. In use now: %s",

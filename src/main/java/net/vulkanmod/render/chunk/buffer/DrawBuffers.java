@@ -168,13 +168,22 @@ public class DrawBuffers {
    ) {
       boolean isTranslucent = terrainRenderType == TerrainRenderType.TRANSLUCENT;
       boolean late = isTranslucent || terrainRenderType == TerrainRenderType.TRIPWIRE;
+      if (culler != null && culler.isResolved()) {
+         culler = null;
+      }
+
       boolean backFaceCulling = Initializer.CONFIG.backFaceCulling && !isTranslucent;
       long drawParamsBasePtr = this.drawParamsPtr + terrainRenderType.ordinal() * 512 * 7 * 16L;
       int hiddenFlag = culler != null ? OcclusionCuller.HIDDEN | culler.nextBatch() << 2 : 0;
+      int layerBit = 1 << terrainRenderType.ordinal();
       int count = 0;
 
       for (Iterator<RenderSection> iterator = queue.iterator(isTranslucent); iterator.hasNext(); ) {
          RenderSection section = iterator.next();
+         if ((section.layerMask & layerBit) == 0) {
+            continue;
+         }
+
          this.sectionIndices[count] = section.inAreaIndex;
          this.sections[count] = section;
          if (backFaceCulling) {

@@ -471,6 +471,14 @@ public final class ActiniumOptionPages {
                 .binding(c -> c.textureAnimations, (c, v) -> c.textureAnimations = v)
                 .build();
 
+        Option<Boolean> animateOnlyVisible = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("actinium.options.animateOnlyVisibleTextures"))
+                .tooltip(Component.translatable("actinium.options.animateOnlyVisibleTextures.tooltip"))
+                .impact(OptionImpact.MEDIUM)
+                .control(new TickBoxControl())
+                .binding(c -> c.animateOnlyVisibleTextures, (c, v) -> c.animateOnlyVisibleTextures = v)
+                .build();
+
         Option<Boolean> wayland = OptionImpl.<Config, Boolean>of(vk)
                 .name(Component.translatable("vulkanmod.options.wayland"))
                 .tooltip(Component.translatable("vulkanmod.options.wayland.tooltip"))
@@ -519,7 +527,7 @@ public final class ActiniumOptionPages {
 
         return OptionPage.of("vulkanmod.options.pages.other",
                 OptionGroup.of("actinium.options.group.performance",
-                        builderThreads, frameQueue, textureAnimations),
+                        builderThreads, frameQueue, textureAnimations, animateOnlyVisible),
                 OptionGroup.of("actinium.options.group.device",
                         wayland, device),
                 OptionGroup.of("actinium.options.group.compatibility",

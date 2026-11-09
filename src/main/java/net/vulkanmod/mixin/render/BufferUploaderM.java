@@ -22,6 +22,11 @@ public abstract class BufferUploaderM {
    @Overwrite
    public static void drawWithShader(MeshData meshData) {
       RenderSystem.assertOnRenderThread();
+      _drawWithShader(meshData);
+   }
+
+   @Overwrite
+   private static void _drawWithShader(MeshData meshData) {
       DrawState parameters = meshData.drawState();
       if (parameters.vertexCount() > 0) {
          ShaderInstance shaderInstance = RenderSystem.getShader();
