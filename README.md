@@ -18,6 +18,11 @@ needs nothing else installed.
   RTX 3050 Ti laptop at render distance 32, about 70% of terrain is skipped and the frame rate
   goes from 67 to about 80 fps.
 - **Faster chunk loading.** Full chunk rebuilds take about 20% less time.
+- **Leaves culling.** Inner leaf faces hidden behind two or more leaves aren't drawn. In a
+  birch forest at render distance 16 this cuts leaf triangles by about 40% and GPU frame time
+  by about 20%. Trees look the same; turn it off under Optimizations if you want every face.
+- **FPS counter.** Optional on-screen frame rate, simple or with min/max, in any corner. Turn it
+  on under Video → Interface.
 - **Video settings screen.** Every option explains what it does, and nothing changes until you
   press Apply.
 - **Mod compatibility.** Mods written for OpenGL keep working. These include mods that call

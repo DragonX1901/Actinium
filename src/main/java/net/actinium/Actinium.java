@@ -1,5 +1,6 @@
 package net.actinium;
 
+import net.actinium.client.hud.FpsOverlay;
 import net.actinium.interop.ActiniumGL;
 import net.actinium.interop.GLRedirectTransformer;
 import net.neoforged.api.distmarker.Dist;
@@ -8,6 +9,8 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import org.slf4j.Logger;
@@ -22,6 +25,11 @@ public class Actinium {
     public Actinium(IEventBus modEventBus, ModContainer modContainer) {
         modContainer.registerConfig(ModConfig.Type.CLIENT, ActiniumConfig.SPEC);
         modEventBus.addListener(this::onClientSetup);
+        modEventBus.addListener(this::onRegisterGuiLayers);
+    }
+
+    private void onRegisterGuiLayers(RegisterGuiLayersEvent event) {
+        event.registerAboveAll(ResourceLocation.fromNamespaceAndPath(MODID, "fps_counter"), new FpsOverlay());
     }
 
     private void onClientSetup(FMLClientSetupEvent event) {

@@ -26,8 +26,11 @@ public class Config {
    public int frameQueueSize = 2;
    public int builderThreads = 0;
    public boolean backFaceCulling = true;
+   public boolean leavesCulling = true;
    public boolean textureAnimations = true;
    public boolean animateOnlyVisibleTextures = true;
+   public int fpsCounter = 0;
+   public int fpsCounterPosition = 0;
    private static Path CONFIG_PATH;
    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().excludeFieldsWithModifiers(new int[]{2}).create();
 

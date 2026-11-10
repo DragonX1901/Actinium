@@ -28,7 +28,7 @@
   "vulkanmod.options.uniqueOpaqueLayer": "Unique Opaque Layer",
   "vulkanmod.options.uniqueOpaqueLayer.tooltip": "Use a unique render layer for opaque terrain to improve performance.",
   "vulkanmod.options.solidEarlyZ": "Early-Z Solid Layer",
-  "vulkanmod.options.solidEarlyZ.tooltip": "Draws fully opaque blocks without alpha testing, so the GPU can reject hidden pixels before shading them. Made no difference on NVIDIA in testing; untested on AMD and Intel.",
+  "vulkanmod.options.solidEarlyZ.tooltip": "Draws fully opaque blocks in their own pass without alpha testing, so the GPU can reject hidden pixels before shading them. The extra pass costs CPU time: on an RTX 3050 Ti it was about 12% slower. Untested on AMD and Intel.",
   "vulkanmod.options.wayland": "Use Wayland",
   "vulkanmod.options.wayland.tooltip": "Use Linux Wayland compositor if available (Experimental). Requires restart.",
   "vulkanmod.options.windowMode": "Window Mode",

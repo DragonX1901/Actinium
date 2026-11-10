@@ -19,7 +19,6 @@ import net.vulkanmod.render.chunk.build.task.ChunkTask;
 import net.vulkanmod.render.chunk.build.task.CompiledSection;
 import net.vulkanmod.render.chunk.build.task.SortTransparencyTask;
 import net.vulkanmod.render.chunk.build.task.TaskDispatcher;
-import net.vulkanmod.render.chunk.cull.OcclusionCuller;
 import net.vulkanmod.render.chunk.cull.QuadFacing;
 import net.vulkanmod.render.chunk.util.Util;
 import net.vulkanmod.render.vertex.TerrainRenderType;
@@ -54,6 +53,8 @@ public class RenderSection {
    public byte directionChanges;
    public final int index;
    public byte layerMask;
+   public boolean occluded;
+   public int occlusionStamp;
    private SpriteContents[] animatedSprites = SpriteActivity.NONE;
 
    public RenderSection(int index, int x, int y, int z) {
@@ -348,7 +349,7 @@ public class RenderSection {
       this.dirty = true;
       this.visibility = 0L;
       this.completelyEmpty = true;
-      OcclusionCuller.forget(this.index);
+      this.occluded = false;
       this.layerMask = 0;
       this.animatedSprites = SpriteActivity.NONE;
       this.resetDrawParameters();

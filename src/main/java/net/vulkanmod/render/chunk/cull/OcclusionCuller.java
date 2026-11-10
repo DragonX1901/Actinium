@@ -100,8 +100,6 @@ public class OcclusionCuller {
    private int hiddenSections;
    private long drawnIndices;
    private long hiddenIndices;
-   private static boolean[] occludedSections = new boolean[0];
-   private static int[] sectionStamps = new int[0];
 
    public static OcclusionCuller create() {
       String reason = unsupportedReason();
@@ -274,22 +272,31 @@ public class OcclusionCuller {
       long drawn = 0L;
       long skipped = 0L;
 
-      for (int i = 0; i < data.count; i++) {
-         if ((data.flags[i] & 3) == LATE) {
+      int[] flags = data.flags;
+      RenderSection[] owners = data.owners;
+      int count = data.count;
+      int bits = 0;
+
+      for (int i = 0; i < count; i++) {
+         if ((i & 31) == 0) {
+            bits = MemoryUtil.memGetInt(this.visibilityCopy + (i >> 5) * 4L);
+         }
+
+         if ((flags[i] & 3) == LATE) {
             continue;
          }
 
-         boolean visible = (MemoryUtil.memGetInt(this.visibilityCopy + (i >> 5) * 4L) & 1 << (i & 31)) != 0;
+         boolean visible = (bits & 1 << (i & 31)) != 0;
          if (visible) {
             drawn += data.indexCounts[i];
          } else {
             skipped += data.indexCounts[i];
          }
 
-         int owner = data.owners[i];
-         if (owner >= 0 && owner < sectionStamps.length && sectionStamps[owner] != stamp) {
-            sectionStamps[owner] = stamp;
-            occludedSections[owner] = !visible;
+         RenderSection owner = owners[i];
+         if (owner != null && owner.occlusionStamp != stamp) {
+            owner.occlusionStamp = stamp;
+            owner.occluded = !visible;
             tested++;
             if (!visible) {
                hidden++;
@@ -304,8 +311,7 @@ public class OcclusionCuller {
    }
 
    public boolean isOccluded(RenderSection section) {
-      int index = section.index;
-      return index < sectionStamps.length && occludedSections[index] && sectionStamps[index] == this.stamp;
+      return section.occluded && section.occlusionStamp == this.stamp;
    }
 
    public static int flagFor(RenderSection section, boolean late) {
@@ -313,26 +319,14 @@ public class OcclusionCuller {
          return LATE;
       }
 
-      int index = section.index;
-      return index < occludedSections.length && occludedSections[index] ? HIDDEN : DRAWN_EARLY;
-   }
-
-   public static void resetSections(int count) {
-      occludedSections = new boolean[count];
-      sectionStamps = new int[count];
-   }
-
-   public static void forget(int index) {
-      if (index < occludedSections.length) {
-         occludedSections[index] = false;
-      }
+      return section.occluded ? HIDDEN : DRAWN_EARLY;
    }
 
    public int nextBatch() {
       return this.frame.batchCount;
    }
 
-   public void addCommands(int firstSlot, int count, long sectionsPtr, long commandsPtr, int[] owners) {
+   public void addCommands(int firstSlot, int count, long sectionsPtr, long commandsPtr, RenderSection[] owners) {
       FrameData data = this.frame;
       if (data.resolved) {
          return;
@@ -656,7 +650,7 @@ public class OcclusionCuller {
       Buffer batches;
       Buffer counts;
       Buffer compacted;
-      int[] owners;
+      RenderSection[] owners;
       int[] flags;
       int[] indexCounts;
       int capacity;
@@ -684,8 +678,7 @@ public class OcclusionCuller {
          this.batches = createBuffer("Occlusion batches", VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, uploadMemory(), batchCapacity * 4L);
          this.counts = createCountsBuffer(batchCapacity);
          this.compacted = createCompactedBuffer((long)capacity * COMMAND_STRIDE);
-         this.owners = new int[capacity];
-         Arrays.fill(this.owners, -1);
+         this.owners = new RenderSection[capacity];
          this.flags = new int[capacity];
          this.indexCounts = new int[capacity];
          this.reset();
@@ -725,9 +718,7 @@ public class OcclusionCuller {
          this.sections = newSections;
          this.visibility.scheduleFree();
          this.visibility = createVisibilityBuffer(newCapacity);
-         int oldCapacity = this.owners.length;
          this.owners = Arrays.copyOf(this.owners, newCapacity);
-         Arrays.fill(this.owners, oldCapacity, newCapacity, -1);
          this.flags = Arrays.copyOf(this.flags, newCapacity);
          this.indexCounts = Arrays.copyOf(this.indexCounts, newCapacity);
          this.capacity = newCapacity;
@@ -762,7 +753,6 @@ public class OcclusionCuller {
       }
 
       void reset() {
-         Arrays.fill(this.owners, 0, this.count, -1);
          this.count = 0;
          this.batchCount = 0;
          this.resolved = false;

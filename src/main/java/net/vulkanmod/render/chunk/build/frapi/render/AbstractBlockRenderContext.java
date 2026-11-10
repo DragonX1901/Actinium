@@ -25,10 +25,12 @@ import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.level.BlockAndTintGetter;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block.BlockStatePairKey;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.BooleanOp;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.vulkanmod.Initializer;
 import net.vulkanmod.interfaces.color.BlockColorsExtended;
 import net.vulkanmod.render.chunk.build.color.BlockColorRegistry;
 import net.vulkanmod.render.chunk.build.frapi.VulkanModRenderer;
@@ -78,6 +80,8 @@ public abstract class AbstractBlockRenderContext extends AbstractRenderContext {
       return this.random;
    };
    protected boolean enableCulling = true;
+   private boolean cullLeaves;
+   private final MutableBlockPos leafPos = new MutableBlockPos();
    protected int cullCompletionFlags;
    protected int cullResultFlags;
 
@@ -108,6 +112,7 @@ public abstract class AbstractBlockRenderContext extends AbstractRenderContext {
    public void prepareForWorld(BlockAndTintGetter blockView, boolean enableCulling) {
       this.renderRegion = blockView;
       this.enableCulling = enableCulling;
+      this.cullLeaves = Initializer.CONFIG.leavesCulling;
    }
 
    public void prepareForBlock(BlockState blockState, BlockPos blockPos, boolean modelAo) {
@@ -147,6 +152,11 @@ public abstract class AbstractBlockRenderContext extends AbstractRenderContext {
       BlockPos adjPos = this.tempPos.setWithOffset(this.blockPos, face);
       BlockState adjBlockState = blockGetter.getBlockState(adjPos);
       if (blockState.skipRendering(adjBlockState, face)) {
+         return false;
+      }
+
+      if (this.cullLeaves && adjBlockState.getBlock() instanceof LeavesBlock && blockState.getBlock() instanceof LeavesBlock
+         && blockGetter.getBlockState(this.leafPos.setWithOffset(adjPos, face)).getBlock() instanceof LeavesBlock) {
          return false;
       }
 

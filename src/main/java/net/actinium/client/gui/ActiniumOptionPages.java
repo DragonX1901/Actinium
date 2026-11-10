@@ -156,6 +156,34 @@ public final class ActiniumOptionPages {
                 .binding(o -> o.menuBackgroundBlurriness().get(), (o, v) -> o.menuBackgroundBlurriness().set(v))
                 .build();
 
+        Option<Integer> fpsCounter = OptionImpl.<Config, Integer>of(vk)
+                .name(Component.translatable("actinium.options.fpsCounter"))
+                .tooltip(Component.translatable("actinium.options.fpsCounter.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new CyclingControl<>(List.of(0, 1, 2), v -> switch (v) {
+                    case 1 -> Component.translatable("actinium.options.fpsCounter.simple");
+                    case 2 -> Component.translatable("actinium.options.fpsCounter.detailed");
+                    default -> CommonComponents.OPTION_OFF;
+                }))
+                .binding(c -> Math.clamp(c.fpsCounter, 0, 2), (c, v) -> c.fpsCounter = v)
+                .build();
+
+        Option<Integer> fpsCounterPosition = OptionImpl.<Config, Integer>of(vk)
+                .name(Component.translatable("actinium.options.fpsCounterPosition"))
+                .tooltip(Component.translatable("actinium.options.fpsCounterPosition.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new CyclingControl<>(List.of(0, 1, 2, 3), v -> Component.translatable(switch (v) {
+                    case 1 -> "actinium.options.fpsCounterPosition.topRight";
+                    case 2 -> "actinium.options.fpsCounterPosition.bottomLeft";
+                    case 3 -> "actinium.options.fpsCounterPosition.bottomRight";
+                    default -> "actinium.options.fpsCounterPosition.topLeft";
+                })))
+                .binding(c -> Math.clamp(c.fpsCounterPosition, 0, 3), (c, v) -> c.fpsCounterPosition = v)
+                .availableWhen(() -> fpsCounter.value() != 0
+                        ? null
+                        : Component.translatable("actinium.options.unavailable.fpsCounterOff"))
+                .build();
+
         Option<Boolean> viewBobbing = OptionImpl.<Options, Boolean>of(vanilla)
                 .name(Component.translatable("options.viewBobbing"))
                 .tooltip(Component.translatable("actinium.options.viewBobbing.tooltip"))
@@ -197,7 +225,7 @@ public final class ActiniumOptionPages {
                 OptionGroup.of("actinium.options.group.display",
                         windowMode, resolution, refreshRate, framerateLimit, vsync),
                 OptionGroup.of("actinium.options.group.interface",
-                        guiScale, brightness, menuBlur),
+                        guiScale, brightness, menuBlur, fpsCounter, fpsCounterPosition),
                 OptionGroup.of("actinium.options.group.effects",
                         viewBobbing, distortion, fovEffects, glintSpeed, glintStrength,
                         attackIndicator, autosaveIndicator));
@@ -424,10 +452,19 @@ public final class ActiniumOptionPages {
                 .flags(OptionFlag.REQUIRES_RENDERER_RELOAD)
                 .build();
 
+        Option<Boolean> leavesCulling = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("actinium.options.leavesCulling"))
+                .tooltip(Component.translatable("actinium.options.leavesCulling.tooltip"))
+                .impact(OptionImpact.HIGH)
+                .control(new TickBoxControl())
+                .binding(c -> c.leavesCulling, (c, v) -> c.leavesCulling = v)
+                .flags(OptionFlag.REQUIRES_RENDERER_RELOAD)
+                .build();
+
 
         return OptionPage.of("vulkanmod.options.pages.optimizations",
                 OptionGroup.of("actinium.options.group.culling",
-                        advCulling, occlusionCulling, entityCulling, backFaceCulling),
+                        advCulling, occlusionCulling, entityCulling, backFaceCulling, leavesCulling),
                 OptionGroup.of("actinium.options.group.drawing",
                         uniqueOpaqueLayer, solidEarlyZ, indirectDraw));
     }

@@ -125,11 +125,39 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
             }
 
             providerField.set(null, replacement);
+            stopEarlyDisplay(provider);
             LOGGER.info("Swapped the loading screen for FML's own no-op provider, which is what "
                     + "the setting selects. This launch does not need a restart.");
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Could not stop the loading screen repainting. This launch may end "
                     + "without a crash report; the next one will not.", e);
+        }
+    }
+
+    private static void stopEarlyDisplay(Object provider) {
+        try {
+            java.lang.reflect.Field schedulerField = provider.getClass().getDeclaredField("renderScheduler");
+            schedulerField.setAccessible(true);
+            java.util.concurrent.ExecutorService scheduler = (java.util.concurrent.ExecutorService) schedulerField.get(provider);
+            scheduler.shutdownNow();
+            if (!scheduler.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                LOGGER.warn("FML's loading screen thread did not stop; leaving its window open.");
+                return;
+            }
+
+            java.lang.reflect.Field windowField = provider.getClass().getDeclaredField("window");
+            windowField.setAccessible(true);
+            long window = windowField.getLong(provider);
+            if (window != 0L) {
+                org.lwjgl.glfw.GLFW.glfwDestroyWindow(window);
+                windowField.setLong(provider, 0L);
+            }
+            LOGGER.info("Closed FML's loading screen window and stopped its repaint thread, which "
+                    + "would otherwise keep drawing into a dead OpenGL context until the game exits.");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not close FML's loading screen window", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

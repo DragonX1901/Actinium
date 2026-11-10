@@ -148,6 +148,7 @@ public final class ActiniumClient {
             context.destroy();
             context = null;
         }
+        net.actinium.interop.bridge.GLContextBridge.destroy();
         LOGGER.info("Actinium shut down");
     }
 

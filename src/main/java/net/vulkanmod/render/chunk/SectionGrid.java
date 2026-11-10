@@ -6,7 +6,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
-import net.vulkanmod.render.chunk.cull.OcclusionCuller;
 import net.vulkanmod.render.chunk.frustum.VFrustum;
 import net.vulkanmod.render.chunk.util.CircularIntList;
 import org.jetbrains.annotations.Nullable;
@@ -42,7 +41,6 @@ public class SectionGrid {
 
       int size = this.gridWidth * this.gridHeight * this.gridWidth;
       this.sections = new RenderSection[size];
-      OcclusionCuller.resetSections(size);
 
       for (int j = 0; j < this.gridWidth; j++) {
          for (int k = 0; k < this.gridHeight; k++) {
