@@ -267,6 +267,25 @@ public final class ActiniumOptionPages {
                 .binding(o -> o.simulationDistance().get(), (o, v) -> o.simulationDistance().set(v))
                 .build();
 
+        Option<Boolean> distantTerrain = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("actinium.options.distantTerrain"))
+                .tooltip(Component.translatable("actinium.options.distantTerrain.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new TickBoxControl())
+                .binding(c -> c.distantTerrain, (c, v) -> c.distantTerrain = v)
+                .build();
+
+        Option<Integer> distantTerrainDistance = OptionImpl.<Config, Integer>of(vk)
+                .name(Component.translatable("actinium.options.distantTerrainDistance"))
+                .tooltip(Component.translatable("actinium.options.distantTerrainDistance.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new SliderControl(32, 128, 16, v -> Component.translatable("options.chunks", v)))
+                .binding(c -> Math.clamp(c.distantTerrainDistance, 32, 128), (c, v) -> c.distantTerrainDistance = v)
+                .availableWhen(() -> distantTerrain.value()
+                        ? null
+                        : Component.translatable("actinium.options.unavailable.distantTerrainOff"))
+                .build();
+
         Option<PrioritizeChunkUpdates> chunkUpdates = OptionImpl.<Options, PrioritizeChunkUpdates>of(vanilla)
                 .name(Component.translatable("options.prioritizeChunkUpdates"))
                 .tooltip(Component.translatable("actinium.options.prioritizeChunkUpdates.tooltip"))
@@ -361,7 +380,7 @@ public final class ActiniumOptionPages {
 
         return OptionPage.of("vulkanmod.options.pages.graphics",
                 OptionGroup.of("actinium.options.group.world",
-                        renderDistance, simulationDistance, chunkUpdates),
+                        renderDistance, simulationDistance, chunkUpdates, distantTerrain, distantTerrainDistance),
                 OptionGroup.of("actinium.options.group.quality",
                         graphicsMode, particles, clouds, smoothLighting, biomeBlend),
                 OptionGroup.of("actinium.options.group.entities",

@@ -76,6 +76,12 @@ public final class GLRouter {
     private static long pixelStorei;
     private static long getIntegerv;
     private static long getError;
+    private static final int GL_VIDMEM_TOTAL_NVX = 0x9048;
+    private static final int GL_VIDMEM_AVAILABLE_NVX = 0x9049;
+    private static final long DRIVER_QUERY_INTERVAL = 1_000_000_000L;
+    private static final int[] vidmem = new int[2];
+    private static final long[] vidmemTime = new long[2];
+    private static long errorDrainTime;
     private static long getTexLevelParameteriv;
     private static long getTexImage;
     private static long compressedTexImage2D;
@@ -420,11 +426,28 @@ public final class GLRouter {
                 VkGlFramebuffer framebuffer = VkGlFramebuffer.getBoundFramebuffer();
                 MemoryUtil.memPutInt(out, framebuffer != null ? framebuffer.id : 0);
             }
+            case GL_VIDMEM_TOTAL_NVX, GL_VIDMEM_AVAILABLE_NVX -> {
+                int slot = name - GL_VIDMEM_TOTAL_NVX;
+                long now = System.nanoTime();
+                if (vidmemTime[slot] == 0L || now - vidmemTime[slot] > DRIVER_QUERY_INTERVAL) {
+                    JNI.callPV(name, out, getIntegerv);
+                    vidmem[slot] = MemoryUtil.memGetInt(out);
+                    vidmemTime[slot] = now;
+                } else {
+                    MemoryUtil.memPutInt(out, vidmem[slot]);
+                }
+            }
             default -> JNI.callPV(name, out, getIntegerv);
         }
     }
 
     private static int getError() {
+        long now = System.nanoTime();
+        if (errorDrainTime != 0L && now - errorDrainTime < DRIVER_QUERY_INTERVAL) {
+            return 0;
+        }
+
+        errorDrainTime = now;
         for (int i = 0; i < 16; i++) {
             if (JNI.callI(getError) == 0) {
                 break;

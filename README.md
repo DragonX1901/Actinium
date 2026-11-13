@@ -21,6 +21,11 @@ needs nothing else installed.
 - **Smoother chunk loading.** Chunk packets, light updates, rebuild scheduling and uploads are
   spread over several frames instead of landing in one. Flying over new terrain at render
   distance 16 has about 40% fewer frames longer than 4 ms.
+- **Distant terrain.** Terrain you have already visited is remembered and drawn in a simplified
+  form beyond the render distance, up to 128 chunks out. At render distance 6 with distant
+  terrain the test scene runs about twice as fast as render distance 16 and shows further.
+  Only the surface is drawn, and only in dimensions without a ceiling. Turn it off under
+  Graphics → World.
 - **Leaves culling.** Inner leaf faces hidden behind two or more leaves aren't drawn. In a
   birch forest at render distance 16 this cuts leaf triangles by about 40% and GPU frame time
   by about 20%. Trees look the same; turn it off under Optimizations if you want every face.

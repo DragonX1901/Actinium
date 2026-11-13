@@ -23,6 +23,7 @@
     "perf.ClientLevelAnimateTickMixin",
     "perf.ClientLevelLightQueueMixin",
     "perf.MinecraftTaskBudgetMixin",
+    "lod.LevelRendererDistantTerrainMixin",
     "perf.SpriteContentsMixin",
     "perf.AnimatedTextureAccessor",
     "perf.TextureAtlasSpriteMixin",
