@@ -3,6 +3,7 @@ package net.vulkanmod.render.chunk.build.task;
 import com.google.common.collect.Queues;
 import java.util.EnumMap;
 import java.util.Queue;
+import net.actinium.perf.FrameBudget;
 import net.vulkanmod.render.chunk.ChunkArea;
 import net.vulkanmod.render.chunk.ChunkAreaManager;
 import net.vulkanmod.render.chunk.RenderSection;
@@ -133,9 +134,13 @@ public class TaskDispatcher {
    public boolean updateSections() {
       boolean flag = false;
 
+      long deadline = FrameBudget.deadline(1_000_000L, 25);
       CompileResult result;
       while ((result = this.compileResults.poll()) != null) {
          flag |= this.doSectionUpdate(result);
+         if (System.nanoTime() >= deadline) {
+            break;
+         }
       }
 
       return flag;

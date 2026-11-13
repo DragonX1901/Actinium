@@ -21,6 +21,8 @@
     "perf.ClientLevelSkyColorMixin",
     "perf.FogRendererColorMixin",
     "perf.ClientLevelAnimateTickMixin",
+    "perf.ClientLevelLightQueueMixin",
+    "perf.MinecraftTaskBudgetMixin",
     "perf.SpriteContentsMixin",
     "perf.AnimatedTextureAccessor",
     "perf.TextureAtlasSpriteMixin",

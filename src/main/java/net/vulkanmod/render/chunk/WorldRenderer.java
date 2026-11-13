@@ -210,6 +210,8 @@ public class WorldRenderer {
          this.lastCamRotX = camera.getXRot();
          this.lastCamRotY = camera.getYRot();
          this.sectionGraph.update(camera, frustum, spectator);
+      } else if (!isCapturedFrustum) {
+         this.sectionGraph.scheduleRebuilds();
       }
 
       this.indirectBuffers[Renderer.getCurrentFrame()].reset();

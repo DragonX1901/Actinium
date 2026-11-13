@@ -18,6 +18,9 @@ needs nothing else installed.
   RTX 3050 Ti laptop at render distance 32, about 70% of terrain is skipped and the frame rate
   goes from 67 to about 80 fps.
 - **Faster chunk loading.** Full chunk rebuilds take about 20% less time.
+- **Smoother chunk loading.** Chunk packets, light updates, rebuild scheduling and uploads are
+  spread over several frames instead of landing in one. Flying over new terrain at render
+  distance 16 has about 40% fewer frames longer than 4 ms.
 - **Leaves culling.** Inner leaf faces hidden behind two or more leaves aren't drawn. In a
   birch forest at render distance 16 this cuts leaf triangles by about 40% and GPU frame time
   by about 20%. Trees look the same; turn it off under Optimizations if you want every face.
@@ -42,14 +45,19 @@ Don't install these alongside Actinium (NeoForge refuses to start if they're pre
 ## Tested with
 
 Create, Cobblemon, Sable, Create Aeronautics, ImmediatelyFast, Lithium, FerriteCore,
-Xaero's Minimap and World Map (NeoForge), Sinytra Connector, Aether, Supplementaries and others.
+Xaero's Minimap and World Map (NeoForge), JourneyMap, JEI, Sinytra Connector, Aether, Supplementaries and others.
 
 ## Known limitations
 
 - OpenGL-only effects, like Veil's lighting and post effects, don't show.
 - Create's moving parts render without Flywheel acceleration, so very large contraptions cost
   more CPU.
-- JourneyMap crashes while entities render.
+
+## Smoother frames
+
+The remaining hitches while chunks load are Java garbage collection pauses of 3 to 10 ms. Adding
+`-XX:+UseZGC -XX:+ZGenerational` to the JVM arguments removes most of them: in the fly test,
+frames over 8 ms went from 13 to 2. Worlds load a little slower with it.
 
 ## Building
 

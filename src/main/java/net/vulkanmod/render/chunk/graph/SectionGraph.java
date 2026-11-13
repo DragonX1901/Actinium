@@ -11,6 +11,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.actinium.perf.FrameBudget;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.interfaces.FrustumMixed;
 import net.vulkanmod.render.chunk.ChunkAreaManager;
@@ -37,6 +38,7 @@ public class SectionGraph {
    private short lastFrame = 0;
    private final ResettableQueue<RenderSection> blockEntitiesSections = new ResettableQueue<>();
    private final ResettableQueue<RenderSection> rebuildQueue = new ResettableQueue<>();
+   private int rebuildCursor;
    private final ResettableQueue<RenderSection> animatedSections = new ResettableQueue<>();
    private VFrustum frustum;
    public RenderRegionBuilder renderRegionCache;
@@ -147,6 +149,7 @@ public class SectionGraph {
       this.sectionQueue.clear();
       this.blockEntitiesSections.clear();
       this.rebuildQueue.clear();
+      this.rebuildCursor = 0;
       this.animatedSections.clear();
    }
 
@@ -182,21 +185,34 @@ public class SectionGraph {
       }
    }
 
-   private void scheduleRebuilds() {
+   public void scheduleRebuilds() {
+      int size = this.rebuildQueue.size();
+      int i = this.rebuildCursor;
+      if (i >= size) {
+         return;
+      }
+
+      long deadline = FrameBudget.deadline(1_000_000L, 25);
       this.renderRegionCache.beginBatch();
 
       try {
-         for (int i = 0; i < this.rebuildQueue.size(); i++) {
-            RenderSection section = this.rebuildQueue.get(i);
-            Vector3d cameraPos = WorldRenderer.getCameraPos();
-            section.rebuildChunkAsync(this.taskDispatcher, this.renderRegionCache, cameraPos);
-            section.setNotDirty();
+         Vector3d cameraPos = WorldRenderer.getCameraPos();
+
+         while (i < size) {
+            RenderSection section = this.rebuildQueue.get(i++);
+            if (section.isDirty()) {
+               section.rebuildChunkAsync(this.taskDispatcher, this.renderRegionCache, cameraPos);
+               section.setNotDirty();
+               if (System.nanoTime() >= deadline) {
+                  break;
+               }
+            }
          }
       } finally {
          this.renderRegionCache.endBatch();
       }
 
-      this.rebuildQueue.clear();
+      this.rebuildCursor = i;
    }
 
    private boolean notInFrustum(RenderSection renderSection) {
