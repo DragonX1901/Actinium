@@ -274,6 +274,8 @@ public class OcclusionCuller {
 
       int[] flags = data.flags;
       RenderSection[] owners = data.owners;
+      int[] slotOwners = data.slotOwners;
+      int ownerCount = data.ownerCount;
       int count = data.count;
       int bits = 0;
 
@@ -293,7 +295,8 @@ public class OcclusionCuller {
             skipped += data.indexCounts[i];
          }
 
-         RenderSection owner = owners[i];
+         int ownerIndex = slotOwners[i];
+         RenderSection owner = ownerIndex >= 0 && ownerIndex < ownerCount ? owners[ownerIndex] : null;
          if (owner != null && owner.occlusionStamp != stamp) {
             owner.occlusionStamp = stamp;
             owner.occluded = !visible;
@@ -326,7 +329,8 @@ public class OcclusionCuller {
       return this.frame.batchCount;
    }
 
-   public void addCommands(int firstSlot, int count, long sectionsPtr, long commandsPtr, RenderSection[] owners) {
+   public void addCommands(int firstSlot, int count, long sectionsPtr, long commandsPtr, RenderSection[] sectionRefs, int sectionCount,
+                           int[] slotSections) {
       FrameData data = this.frame;
       if (data.resolved) {
          return;
@@ -335,9 +339,13 @@ public class OcclusionCuller {
       int end = firstSlot + count;
       data.ensureCapacity(end);
       MemoryUtil.memCopy(sectionsPtr, data.sections.getDataPtr() + HEADER_SIZE + (long)firstSlot * SECTION_STRIDE, (long)count * SECTION_STRIDE);
-      System.arraycopy(owners, 0, data.owners, firstSlot, count);
+      int base = data.ownerCount;
+      data.ensureOwnerCapacity(base + sectionCount);
+      System.arraycopy(sectionRefs, 0, data.owners, base, sectionCount);
+      data.ownerCount = base + sectionCount;
 
       for (int i = 0; i < count; i++) {
+         data.slotOwners[firstSlot + i] = base + slotSections[i];
          data.flags[firstSlot + i] = MemoryUtil.memGetInt(sectionsPtr + i * (long)SECTION_STRIDE + 12L);
          data.indexCounts[firstSlot + i] = MemoryUtil.memGetInt(commandsPtr + i * (long)COMMAND_STRIDE);
       }
@@ -651,6 +659,8 @@ public class OcclusionCuller {
       Buffer counts;
       Buffer compacted;
       RenderSection[] owners;
+      int[] slotOwners;
+      int ownerCount;
       int[] flags;
       int[] indexCounts;
       int capacity;
@@ -679,6 +689,7 @@ public class OcclusionCuller {
          this.counts = createCountsBuffer(batchCapacity);
          this.compacted = createCompactedBuffer((long)capacity * COMMAND_STRIDE);
          this.owners = new RenderSection[capacity];
+         this.slotOwners = new int[capacity];
          this.flags = new int[capacity];
          this.indexCounts = new int[capacity];
          this.reset();
@@ -718,7 +729,7 @@ public class OcclusionCuller {
          this.sections = newSections;
          this.visibility.scheduleFree();
          this.visibility = createVisibilityBuffer(newCapacity);
-         this.owners = Arrays.copyOf(this.owners, newCapacity);
+         this.slotOwners = Arrays.copyOf(this.slotOwners, newCapacity);
          this.flags = Arrays.copyOf(this.flags, newCapacity);
          this.indexCounts = Arrays.copyOf(this.indexCounts, newCapacity);
          this.capacity = newCapacity;
@@ -752,8 +763,15 @@ public class OcclusionCuller {
          this.buffersVersion++;
       }
 
+      void ensureOwnerCapacity(int required) {
+         if (required > this.owners.length) {
+            this.owners = Arrays.copyOf(this.owners, Math.max(required, this.owners.length * 2));
+         }
+      }
+
       void reset() {
          this.count = 0;
+         this.ownerCount = 0;
          this.batchCount = 0;
          this.resolved = false;
          this.readable = false;

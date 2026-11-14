@@ -79,6 +79,7 @@ public class Renderer {
    private VkCommandBuffer currentCmdBuffer;
    private boolean recordingCmds = false;
    private long frameSegment;
+   private static long commandBufferGeneration;
    private boolean acquireWaited;
    private long flushFence;
    private int frameFlushes;
@@ -329,6 +330,7 @@ public class Renderer {
       beginInfo.sType(42);
       beginInfo.flags(1);
       VkCommandBuffer commandBuffer = this.currentCmdBuffer;
+      commandBufferGeneration++;
       int vkResult = VK10.vkBeginCommandBuffer(commandBuffer, beginInfo);
       if (vkResult != 0) {
          throw new RuntimeException("Failed to begin recording command buffer: %s".formatted(VkResult.decode(vkResult)));
@@ -507,6 +509,10 @@ public class Renderer {
       }
    }
 
+   public static long getCommandBufferGeneration() {
+      return commandBufferGeneration;
+   }
+
    public static long getFrameSegment() {
       return INSTANCE.frameSegment;
    }
@@ -580,6 +586,7 @@ public class Renderer {
          VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc(stack);
          beginInfo.sType(42);
          beginInfo.flags(1);
+         commandBufferGeneration++;
          VK10.vkBeginCommandBuffer(this.currentCmdBuffer, beginInfo);
       }
 

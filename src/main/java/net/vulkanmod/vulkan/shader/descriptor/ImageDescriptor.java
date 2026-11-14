@@ -101,6 +101,14 @@ public class ImageDescriptor implements Descriptor {
          this.sampler = sampler;
       }
 
+      public long view() {
+         return this.imageView;
+      }
+
+      public long sampler() {
+         return this.sampler;
+      }
+
       public boolean isCurrentState(long imageView, long sampler) {
          return this.imageView == imageView && this.sampler == sampler;
       }

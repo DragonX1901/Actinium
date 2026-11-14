@@ -16,10 +16,27 @@ public class UniformBuffer extends Buffer {
       this.createBuffer(size);
    }
 
+   private int generation;
+
    public void checkCapacity(int size) {
       if (size > this.bufferSize - this.usedBytes) {
          this.resizeBuffer((this.bufferSize + size) * 2L);
+         this.generation++;
       }
+   }
+
+   @Override
+   public void reset() {
+      super.reset();
+      this.generation++;
+   }
+
+   public int getGeneration() {
+      return this.generation;
+   }
+
+   public long getBasePointer() {
+      return this.dataPtr;
    }
 
    public void updateOffset(int alignedSize) {

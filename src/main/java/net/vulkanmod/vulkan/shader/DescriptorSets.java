@@ -3,6 +3,7 @@ package net.vulkanmod.vulkan.shader;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.Arrays;
+import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.memory.MemoryManager;
 import net.vulkanmod.vulkan.memory.buffer.Buffer;
@@ -34,12 +35,38 @@ public class DescriptorSets {
    private final long[] boundUBs;
    private final ImageDescriptor.State[] boundTextures;
    private final IntBuffer dynamicOffsets;
+   private final int[] lastOffsets;
+   private final long[] lastBufferIds;
+   private final int[] lastGenerations;
+   private final long[] lastData;
+   private long scratch;
+   private int scratchSize;
+   private long[][] setViews = new long[0][];
+   private long[][] setSamplers = new long[0][];
+   private long[][] setBuffers = new long[0][];
+   private static final int REUSE_WINDOW = 8;
+   private final long[] currentViews;
+   private final long[] currentSamplers;
+   private final long[] currentBuffers;
+   private static long boundCommandBuffer;
+   private static long boundGeneration;
+   private static long boundLayout;
+   private static long boundSet;
+   private static final int[] boundOffsets = new int[16];
+   private static int boundOffsetCount = -1;
 
    DescriptorSets(Pipeline pipeline) {
       this.pipeline = pipeline;
       this.boundTextures = new ImageDescriptor.State[pipeline.imageDescriptors.size()];
       this.dynamicOffsets = MemoryUtil.memAllocInt(pipeline.buffers.size());
       this.boundUBs = new long[pipeline.buffers.size()];
+      this.lastOffsets = new int[pipeline.buffers.size()];
+      this.lastBufferIds = new long[pipeline.buffers.size()];
+      this.lastGenerations = new int[pipeline.buffers.size()];
+      this.lastData = new long[pipeline.buffers.size()];
+      this.currentViews = new long[pipeline.imageDescriptors.size()];
+      this.currentSamplers = new long[pipeline.imageDescriptors.size()];
+      this.currentBuffers = new long[pipeline.buffers.size()];
       Arrays.setAll(this.boundTextures, i -> new ImageDescriptor.State(0L, 0L));
       MemoryStack stack = MemoryStack.stackPush();
 
@@ -69,7 +96,9 @@ public class DescriptorSets {
       try {
          this.updateUniforms(uniformBuffer);
          this.updateDescriptorSet(stack, uniformBuffer);
-         VK10.vkCmdBindDescriptorSets(commandBuffer, bindPoint, this.pipeline.pipelineLayout, 0, stack.longs(this.currentSet), this.dynamicOffsets);
+         if (!this.alreadyBound(commandBuffer, bindPoint)) {
+            VK10.vkCmdBindDescriptorSets(commandBuffer, bindPoint, this.pipeline.pipelineLayout, 0, stack.longs(this.currentSet), this.dynamicOffsets);
+         }
       } catch (Throwable var8) {
          if (stack != null) {
             try {
@@ -87,6 +116,52 @@ public class DescriptorSets {
       }
    }
 
+   private boolean alreadyBound(VkCommandBuffer commandBuffer, int bindPoint) {
+      int count = this.dynamicOffsets.limit();
+      if (bindPoint != 0 || count > boundOffsets.length) {
+         boundOffsetCount = -1;
+         return false;
+      }
+
+      long handle = commandBuffer.address();
+      long generation = Renderer.getCommandBufferGeneration();
+      boolean same = handle == boundCommandBuffer && generation == boundGeneration && this.pipeline.pipelineLayout == boundLayout
+         && this.currentSet == boundSet && count == boundOffsetCount;
+      for (int i = 0; same && i < count; i++) {
+         same = boundOffsets[i] == this.dynamicOffsets.get(i);
+      }
+
+      if (!same) {
+         boundCommandBuffer = handle;
+         boundGeneration = generation;
+         boundLayout = this.pipeline.pipelineLayout;
+         boundSet = this.currentSet;
+         boundOffsetCount = count;
+         for (int i = 0; i < count; i++) {
+            boundOffsets[i] = this.dynamicOffsets.get(i);
+         }
+      }
+
+      return same;
+   }
+
+   private static boolean sameBytes(long a, long b, int size) {
+      int i = 0;
+      for (; i + 8 <= size; i += 8) {
+         if (MemoryUtil.memGetLong(a + i) != MemoryUtil.memGetLong(b + i)) {
+            return false;
+         }
+      }
+
+      for (; i < size; i++) {
+         if (MemoryUtil.memGetByte(a + i) != MemoryUtil.memGetByte(b + i)) {
+            return false;
+         }
+      }
+
+      return true;
+   }
+
    private void updateUniforms(UniformBuffer globalUB) {
       int i = 0;
 
@@ -102,14 +177,39 @@ public class DescriptorSets {
             BufferSlice bufferSlice = ubo.getBufferSlice();
             offset = bufferSlice.getOffset();
          } else {
-            offset = (int)globalUB.getUsedBytes();
             int alignedSize = UniformBuffer.getAlignedSize(ubo.getSize());
             globalUB.checkCapacity(alignedSize);
+            offset = (int)globalUB.getUsedBytes();
+            boolean reusable = this.lastBufferIds[i] == globalUB.getId() && this.lastGenerations[i] == globalUB.getGeneration();
             if (ubo.shouldUpdate()) {
-               ubo.update(globalUB.getPointer());
+               int size = ubo.getSize();
+               if (this.scratchSize < size) {
+                  MemoryUtil.nmemFree(this.scratch);
+                  this.scratch = MemoryUtil.nmemCalloc(1, size);
+                  this.scratchSize = size;
+               }
+
+               if (this.lastData[i] == 0L) {
+                  this.lastData[i] = MemoryUtil.nmemCalloc(1, size);
+               }
+
+               ubo.update(this.scratch);
+               if (reusable && sameBytes(this.scratch, this.lastData[i], size)) {
+                  offset = this.lastOffsets[i];
+               } else {
+                  MemoryUtil.memCopy(this.scratch, globalUB.getPointer(), size);
+                  MemoryUtil.memCopy(this.scratch, this.lastData[i], size);
+                  globalUB.updateOffset(alignedSize);
+               }
+            } else if (reusable) {
+               offset = this.lastOffsets[i];
+            } else {
+               globalUB.updateOffset(alignedSize);
             }
 
-            globalUB.updateOffset(alignedSize);
+            this.lastOffsets[i] = offset;
+            this.lastBufferIds[i] = globalUB.getId();
+            this.lastGenerations[i] = globalUB.getGeneration();
             BufferSlice bufferSlice = ubo.getBufferSlice();
             bufferSlice.set(globalUB, offset, alignedSize);
          }
@@ -120,10 +220,7 @@ public class DescriptorSets {
    }
 
    private boolean needsUpdate(UniformBuffer uniformBuffer) {
-      if (this.currentIdx == -1) {
-         return true;
-      }
-
+      boolean changed = this.currentIdx == -1;
       for (int j = 0; j < this.pipeline.imageDescriptors.size(); j++) {
          ImageDescriptor imageDescriptor = this.pipeline.imageDescriptors.get(j);
          VulkanImage image = imageDescriptor.getImage();
@@ -140,8 +237,10 @@ public class DescriptorSets {
             image.readOnlyLayout();
          }
 
-         if (!this.boundTextures[j].isCurrentState(view, sampler)) {
-            return true;
+         this.currentViews[j] = view;
+         this.currentSamplers[j] = sampler;
+         if (!changed && !this.boundTextures[j].isCurrentState(view, sampler)) {
+            changed = true;
          }
       }
 
@@ -152,12 +251,13 @@ public class DescriptorSets {
             uniformBufferI = uniformBuffer;
          }
 
-         if (this.boundUBs[j] != uniformBufferI.getId()) {
-            return true;
+         this.currentBuffers[j] = uniformBufferI.getId();
+         if (!changed && this.boundUBs[j] != uniformBufferI.getId()) {
+            changed = true;
          }
       }
 
-      return false;
+      return changed;
    }
 
    private void checkPoolSize(MemoryStack stack) {
@@ -169,10 +269,65 @@ public class DescriptorSets {
       }
    }
 
+   private int findReusable(UniformBuffer uniformBuffer) {
+      for (int idx = this.currentIdx - 1; idx >= 0 && idx >= this.currentIdx - REUSE_WINDOW; idx--) {
+         long[] views = this.setViews[idx];
+         if (views == null) {
+            continue;
+         }
+
+         boolean match = Arrays.equals(views, this.currentViews) && Arrays.equals(this.setSamplers[idx], this.currentSamplers)
+            && Arrays.equals(this.setBuffers[idx], this.currentBuffers);
+
+         if (match) {
+            return idx;
+         }
+      }
+
+      return -1;
+   }
+
+   private void rememberSet(int idx) {
+      if (idx >= this.setViews.length) {
+         int size = Math.max(this.poolSize, idx + 1);
+         this.setViews = Arrays.copyOf(this.setViews, size);
+         this.setSamplers = Arrays.copyOf(this.setSamplers, size);
+         this.setBuffers = Arrays.copyOf(this.setBuffers, size);
+      }
+
+      int images = this.pipeline.imageDescriptors.size();
+      long[] views = new long[images];
+      long[] samplers = new long[images];
+      for (int j = 0; j < images; j++) {
+         views[j] = this.boundTextures[j].view();
+         samplers[j] = this.boundTextures[j].sampler();
+      }
+
+      this.setViews[idx] = views;
+      this.setSamplers[idx] = samplers;
+      this.setBuffers[idx] = this.boundUBs.clone();
+   }
+
    private void updateDescriptorSet(MemoryStack stack, UniformBuffer uniformBuffer) {
       if (this.needsUpdate(uniformBuffer)) {
+         int reuse = this.findReusable(uniformBuffer);
+         if (reuse >= 0) {
+            this.currentSet = this.sets[reuse];
+            for (int j = 0; j < this.boundTextures.length; j++) {
+               this.boundTextures[j].set(this.setViews[reuse][j], this.setSamplers[reuse][j]);
+            }
+
+            System.arraycopy(this.setBuffers[reuse], 0, this.boundUBs, 0, this.boundUBs.length);
+            return;
+         }
+
          this.currentIdx++;
+         int previousPool = this.poolSize;
          this.checkPoolSize(stack);
+         if (this.poolSize != previousPool) {
+            Arrays.fill(this.setViews, null);
+         }
+
          this.currentSet = this.sets[this.currentIdx];
          org.lwjgl.vulkan.VkWriteDescriptorSet.Buffer descriptorWrites = VkWriteDescriptorSet.calloc(
             this.pipeline.buffers.size() + this.pipeline.imageDescriptors.size(), stack
@@ -236,6 +391,7 @@ public class DescriptorSets {
          }
 
          VK10.vkUpdateDescriptorSets(DEVICE, descriptorWrites, null);
+         this.rememberSet(this.currentIdx);
       }
    }
 
@@ -303,5 +459,11 @@ public class DescriptorSets {
       VK10.vkResetDescriptorPool(DEVICE, this.descriptorPool, 0);
       VK10.vkDestroyDescriptorPool(DEVICE, this.descriptorPool, null);
       MemoryUtil.memFree(this.dynamicOffsets);
+      MemoryUtil.nmemFree(this.scratch);
+      this.scratch = 0L;
+      for (int i = 0; i < this.lastData.length; i++) {
+         MemoryUtil.nmemFree(this.lastData[i]);
+         this.lastData[i] = 0L;
+      }
    }
 }

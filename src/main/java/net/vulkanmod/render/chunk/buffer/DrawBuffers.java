@@ -430,11 +430,14 @@ public class DrawBuffers {
       private static final int CAPACITY = 512 * QuadFacing.COUNT;
       final long commands = MemoryUtil.nmemAlignedAlloc(32L, (long)CAPACITY * CMD_STRIDE);
       final long sectionData = MemoryUtil.nmemAlignedAlloc(16L, (long)CAPACITY * OcclusionCuller.SECTION_STRIDE);
-      final RenderSection[] owners = new RenderSection[CAPACITY];
+      final RenderSection[] sectionRefs = new RenderSection[CAPACITY];
+      final int[] slotSection = new int[CAPACITY];
       int count;
+      int sectionCount;
 
       void clear() {
          this.count = 0;
+         this.sectionCount = 0;
       }
 
       void putCommand(int indexCount, int firstIndex, int vertexOffset, int baseInstance) {
@@ -448,13 +451,15 @@ public class DrawBuffers {
       }
 
       void putSection(int from, RenderSection section, float x, float y, float z, int flags) {
+         int ref = this.sectionCount++;
+         this.sectionRefs[ref] = section;
          for (int k = from; k < this.count; k++) {
             long ptr = this.sectionData + (long)k * OcclusionCuller.SECTION_STRIDE;
             MemoryUtil.memPutFloat(ptr, x);
             MemoryUtil.memPutFloat(ptr + 4L, y);
             MemoryUtil.memPutFloat(ptr + 8L, z);
             MemoryUtil.memPutInt(ptr + 12L, flags);
-            this.owners[k] = section;
+            this.slotSection[k] = ref;
          }
       }
 
@@ -462,7 +467,7 @@ public class DrawBuffers {
          indirectBuffer.recordCopyCmd(MemoryUtil.memByteBuffer(this.commands, this.count * CMD_STRIDE));
          long offset = indirectBuffer.getOffset();
          if (culler != null) {
-            culler.addCommands((int)(offset / CMD_STRIDE), this.count, this.sectionData, this.commands, this.owners);
+            culler.addCommands((int)(offset / CMD_STRIDE), this.count, this.sectionData, this.commands, this.sectionRefs, this.sectionCount, this.slotSection);
          }
 
          return offset;
