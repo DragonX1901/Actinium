@@ -146,7 +146,11 @@ public class VBO {
    public void draw() {
       if (this.indexCount != 0) {
          Renderer renderer = Renderer.getInstance();
-         Pipeline pipeline = renderer.getBoundPipeline();
+         Pipeline pipeline = renderer.getDrawPipeline();
+         if (pipeline == null) {
+            return;
+         }
+
          renderer.uploadAndBindUBOs(pipeline);
          if (this.autoIndexed) {
             this.indexBuffer = this.getAutoIndexBuffer();

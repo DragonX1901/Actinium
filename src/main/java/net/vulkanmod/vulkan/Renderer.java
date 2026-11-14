@@ -63,6 +63,7 @@ public class Renderer {
    private final Set<Pipeline> usedPipelines = new ObjectOpenHashSet();
    private Pipeline boundPipeline;
    private long boundPipelineHandle;
+   private GraphicsPipeline lastGraphicsPipeline;
    private Drawer drawer;
    private SwapChain swapChain;
    private int framesNum;
@@ -733,6 +734,7 @@ public class Renderer {
       this.usedPipelines.clear();
       this.boundPipeline = null;
       this.boundPipelineHandle = 0L;
+      this.lastGraphicsPipeline = null;
    }
 
    void waitForSwapChain() {
@@ -826,6 +828,16 @@ public class Renderer {
          this.boundPipeline = pipeline;
          this.addUsedPipeline(pipeline);
       }
+
+      this.lastGraphicsPipeline = pipeline;
+   }
+
+   public Pipeline getDrawPipeline() {
+      if (this.boundPipeline == null && this.lastGraphicsPipeline != null && this.recordingCmds) {
+         this.bindGraphicsPipeline(this.lastGraphicsPipeline);
+      }
+
+      return this.boundPipeline;
    }
 
    public void uploadAndBindUBOs(Pipeline pipeline) {

@@ -51,9 +51,11 @@ public abstract class BufferUploaderM {
       DrawState parameters = meshData.drawState();
       if (parameters.vertexCount() > 0) {
          Renderer renderer = Renderer.getInstance();
-         Pipeline pipeline = renderer.getBoundPipeline();
-         renderer.uploadAndBindUBOs(pipeline);
-         Renderer.getDrawer().draw(meshData.vertexBuffer(), null, parameters.mode(), parameters.format(), parameters.vertexCount());
+         Pipeline pipeline = renderer.getDrawPipeline();
+         if (pipeline != null) {
+            renderer.uploadAndBindUBOs(pipeline);
+            Renderer.getDrawer().draw(meshData.vertexBuffer(), null, parameters.mode(), parameters.format(), parameters.vertexCount());
+         }
       }
 
       meshData.close();
