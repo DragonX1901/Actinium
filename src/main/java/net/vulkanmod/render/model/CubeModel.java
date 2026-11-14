@@ -9,6 +9,7 @@ import org.joml.Vector3f;
 
 public class CubeModel {
    private Polygon[] polygons = new Polygon[6];
+   private int[] polygonAxes = new int[0];
    public float minX;
    public float minY;
    public float minZ;
@@ -100,12 +101,55 @@ public class CubeModel {
       if (set.contains(Direction.SOUTH)) {
          this.polygons[idx] = new Polygon(new Vertex[]{vertex5, vertex6, vertex7, vertex8}, aa, ad, ab, ae, q, r, bl, Direction.SOUTH);
       }
+
+      this.polygonAxes = new int[this.polygons.length];
+      for (int face = 0; face < this.polygons.length; face++) {
+         this.polygonAxes[face] = axisOf(this.polygons[face].normal);
+      }
    }
 
    public void transformVertices(Matrix4f matrix) {
-      for (int i = 0; i < 8; i++) {
-         this.vertices[i].mulPosition(matrix, this.transformed[i]);
+      Vector3f origin = this.vertices[0];
+      float dx = this.vertices[1].x - origin.x;
+      float dy = this.vertices[3].y - origin.y;
+      float dz = this.vertices[4].z - origin.z;
+      float x0 = Math.fma(matrix.m00(), origin.x, Math.fma(matrix.m10(), origin.y, Math.fma(matrix.m20(), origin.z, matrix.m30())));
+      float y0 = Math.fma(matrix.m01(), origin.x, Math.fma(matrix.m11(), origin.y, Math.fma(matrix.m21(), origin.z, matrix.m31())));
+      float z0 = Math.fma(matrix.m02(), origin.x, Math.fma(matrix.m12(), origin.y, Math.fma(matrix.m22(), origin.z, matrix.m32())));
+      float xx = matrix.m00() * dx;
+      float xy = matrix.m01() * dx;
+      float xz = matrix.m02() * dx;
+      float yx = matrix.m10() * dy;
+      float yy = matrix.m11() * dy;
+      float yz = matrix.m12() * dy;
+      float zx = matrix.m20() * dz;
+      float zy = matrix.m21() * dz;
+      float zz = matrix.m22() * dz;
+      Vector3f[] out = this.transformed;
+      out[0].set(x0, y0, z0);
+      out[1].set(x0 + xx, y0 + xy, z0 + xz);
+      out[2].set(x0 + xx + yx, y0 + xy + yy, z0 + xz + yz);
+      out[3].set(x0 + yx, y0 + yy, z0 + yz);
+      out[4].set(x0 + zx, y0 + zy, z0 + zz);
+      out[5].set(x0 + xx + zx, y0 + xy + zy, z0 + xz + zz);
+      out[6].set(x0 + xx + yx + zx, y0 + xy + yy + zy, z0 + xz + yz + zz);
+      out[7].set(x0 + yx + zx, y0 + yy + zy, z0 + yz + zz);
+   }
+
+   private static int axisOf(Vector3f n) {
+      if (n.y == 0.0F && n.z == 0.0F && Math.abs(n.x) == 1.0F) {
+         return n.x > 0.0F ? 0 : 1;
+      } else if (n.x == 0.0F && n.z == 0.0F && Math.abs(n.y) == 1.0F) {
+         return n.y > 0.0F ? 2 : 3;
+      } else if (n.x == 0.0F && n.y == 0.0F && Math.abs(n.z) == 1.0F) {
+         return n.z > 0.0F ? 4 : 5;
       }
+
+      return -1;
+   }
+
+   public int[] getPolygonAxes() {
+      return this.polygonAxes;
    }
 
    public Polygon[] getPolygons() {

@@ -1,7 +1,6 @@
 package net.actinium;
 
 import net.actinium.client.hud.FpsOverlay;
-import net.actinium.lod.DistantTerrain;
 import net.actinium.interop.ActiniumGL;
 import net.actinium.interop.GLRedirectTransformer;
 import net.neoforged.api.distmarker.Dist;
@@ -40,10 +39,6 @@ public class Actinium {
             LOGGER.info("Rendering through the built-in Vulkan renderer (VulkanMod {}) on {}",
                     Initializer.getVersion(),
                     DeviceManager.device != null ? DeviceManager.device.deviceName : "an unknown device");
-        }
-
-        if (!ActiniumMixinPlugin.rendererMode()) {
-            DistantTerrain.register();
         }
 
         if (!ActiniumClient.isActive()) {

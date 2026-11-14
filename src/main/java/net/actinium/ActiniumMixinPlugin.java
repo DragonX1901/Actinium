@@ -100,9 +100,24 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
             java.lang.reflect.Field providerField = handler.getDeclaredField("provider");
             providerField.setAccessible(true);
             Object provider = providerField.get(null);
-            if (provider == null
-                    || !provider.getClass().getName()
-                            .equals("net.neoforged.fml.earlydisplay.DisplayWindow")) {
+            Object owner = null;
+            java.lang.reflect.Field ownerField = null;
+            if (provider != null && !isEarlyDisplay(provider)) {
+                for (java.lang.reflect.Field field : provider.getClass().getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                        continue;
+                    }
+                    field.setAccessible(true);
+                    Object wrapped = field.get(provider);
+                    if (wrapped != null && isEarlyDisplay(wrapped)) {
+                        owner = provider;
+                        ownerField = field;
+                        provider = wrapped;
+                        break;
+                    }
+                }
+            }
+            if (provider == null || !isEarlyDisplay(provider)) {
                 return;
             }
             Class<?> dummy = Class.forName(
@@ -124,7 +139,11 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
                 return;
             }
 
-            providerField.set(null, replacement);
+            if (ownerField != null) {
+                ownerField.set(owner, replacement);
+            } else {
+                providerField.set(null, replacement);
+            }
             stopEarlyDisplay(provider);
             LOGGER.info("Swapped the loading screen for FML's own no-op provider, which is what "
                     + "the setting selects. This launch does not need a restart.");
@@ -132,6 +151,10 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
             LOGGER.warn("Could not stop the loading screen repainting. This launch may end "
                     + "without a crash report; the next one will not.", e);
         }
+    }
+
+    private static boolean isEarlyDisplay(Object provider) {
+        return provider.getClass().getName().equals("net.neoforged.fml.earlydisplay.DisplayWindow");
     }
 
     private static void stopEarlyDisplay(Object provider) {

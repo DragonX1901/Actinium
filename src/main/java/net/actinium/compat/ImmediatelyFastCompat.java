@@ -21,7 +21,7 @@ public final class ImmediatelyFastCompat {
         if (!Boolean.getBoolean("actinium.renderer") && GLContextBridge.wanted()) {
             GLContextBridge.install();
         }
-        if (GLFW.glfwGetCurrentContext() != 0L) {
+        if (GLFW.glfwGetCurrentContext() != 0L && contextUsable()) {
             return;
         }
         try {
@@ -46,6 +46,20 @@ public final class ImmediatelyFastCompat {
             LOGGER.warn("Could not open a temporary OpenGL context for ImmediatelyFast", t);
         } finally {
             GLFW.glfwDefaultWindowHints();
+        }
+    }
+
+    private static boolean contextUsable() {
+        try {
+            GL.getCapabilities();
+            return true;
+        } catch (IllegalStateException missing) {
+            try {
+                GL.createCapabilities();
+                return true;
+            } catch (IllegalStateException | LinkageError e) {
+                return false;
+            }
         }
     }
 

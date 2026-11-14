@@ -16,6 +16,10 @@ public interface ExtendedVertexBuilder {
       return true;
    }
 
+   default long beginEntityVertices(int count) {
+      return 0L;
+   }
+
    void vertex(float var1, float var2, float var3, int var4, float var5, float var6, int var7, int var8, int var9);
 
    default void vertex(float x, float y, float z, float u, float v, int packedColor, int light) {

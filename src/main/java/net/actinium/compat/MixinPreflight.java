@@ -114,7 +114,8 @@ public final class MixinPreflight {
             List<String> targets = targets(entry.info());
             boolean blocks = targets.contains("net/minecraft/client/renderer/block/ModelBlockRenderer");
             boolean fluids = targets.contains("net/minecraft/client/renderer/block/LiquidBlockRenderer");
-            if (name.startsWith("net.vulkanmod.") || name.startsWith("net.actinium.") || !blocks && !fluids) {
+            if (name.startsWith("net.vulkanmod.") || name.startsWith("net.actinium.")
+                    || name.startsWith("net.fabricmc.fabric.mixin.client.indigo.") || !blocks && !fluids) {
                 continue;
             }
             ClassNode node = nodes.get(name);

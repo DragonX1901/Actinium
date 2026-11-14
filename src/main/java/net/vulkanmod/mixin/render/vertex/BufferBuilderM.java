@@ -1,6 +1,7 @@
 package net.vulkanmod.mixin.render.vertex;
 
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
@@ -35,6 +36,36 @@ public abstract class BufferBuilderM implements VertexConsumer, ExtendedVertexBu
    @Final
    private int initialElementsToFill;
    private long ptr;
+   @Shadow
+   @Final
+   private ByteBufferBuilder buffer;
+   @Shadow
+   private int vertices;
+   @Shadow
+   private long vertexPointer;
+   @Shadow
+   @Final
+   private int vertexSize;
+
+   @Shadow
+   protected abstract void ensureBuilding();
+
+   @Shadow
+   protected abstract void endLastVertex();
+
+   @Override
+   public long beginEntityVertices(int count) {
+      if (this.format != DefaultVertexFormat.NEW_ENTITY) {
+         return 0L;
+      }
+
+      this.ensureBuilding();
+      this.endLastVertex();
+      long start = this.buffer.reserve(this.vertexSize * count);
+      this.vertices += count;
+      this.vertexPointer = start + (long)this.vertexSize * (count - 1);
+      return start;
+   }
 
    @Shadow
    protected abstract long beginVertex();
