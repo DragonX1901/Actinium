@@ -19,6 +19,9 @@ public abstract class MAbstractTexture {
    @Shadow
    protected int id;
 
+   @Shadow
+   public abstract int getId();
+
    @Overwrite
    public void bind() {
       if (!RenderSystem.isOnRenderThreadOrInit()) {
@@ -32,8 +35,8 @@ public abstract class MAbstractTexture {
    public void setFilter(boolean blur, boolean mipmap) {
       this.blur = blur;
       this.mipmap = mipmap;
-      VkGlTexture glTexture = VkGlTexture.getTexture(this.id);
-      VulkanImage vulkanImage = glTexture.getVulkanImage();
+      VkGlTexture glTexture = VkGlTexture.getTexture(this.getId());
+      VulkanImage vulkanImage = glTexture != null ? glTexture.getVulkanImage() : null;
       if (vulkanImage != null) {
          long sampler = SamplerManager.getSampler(true, this.blur, 100);
          vulkanImage.setSampler(sampler);
@@ -42,6 +45,6 @@ public abstract class MAbstractTexture {
 
    @Unique
    private void bindTexture() {
-      VkGlTexture.bindTexture(this.id);
+      VkGlTexture.bindTexture(this.getId());
    }
 }
