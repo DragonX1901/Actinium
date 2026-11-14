@@ -25,6 +25,10 @@ needs nothing else installed.
   multiply, face normals are worked out once per cube, each cube's vertices are written in one
   go, and pose stack entries are reused. With about 300 mobs and Pokémon on screen this gives
   7–12% more frames.
+- **Less memory for entity models.** Models are no longer stored twice. Each cube keeps its
+  corners, texture coordinates and face directions in small arrays built on first use instead
+  of a full copy of vanilla's polygon objects. With Cobblemon this saves about 175 MB of heap,
+  and the denser data also renders 5–20% faster in a scene with about 300 mobs.
 - **Leaves culling.** Inner leaf faces hidden behind two or more leaves aren't drawn. In a
   birch forest at render distance 16 this cuts leaf triangles by about 40% and GPU frame time
   by about 20%. Trees look the same; turn it off under Optimizations if you want every face.

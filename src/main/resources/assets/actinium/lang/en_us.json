@@ -134,5 +134,16 @@
   "actinium.options.deviceSelector.tooltip": "The GPU the renderer uses. Auto prefers a discrete card.",
   "actinium.options.deviceSelector.tooltip.current": "The GPU the renderer uses. Auto prefers a discrete card. In use now: %s",
   "actinium.options.glContextBridge": "OpenGL Context For Mods",
-  "actinium.options.glContextBridge.tooltip": "Gives mods that call OpenGL directly a real, hidden OpenGL context. Mods built on Veil need it to start. Anything they draw through OpenGL is not shown on screen."
+  "actinium.options.glContextBridge.tooltip": "Gives mods that call OpenGL directly a real, hidden OpenGL context. Mods built on Veil need it to start. Anything they draw through OpenGL is not shown on screen.",
+  "actinium.options.pages.actinium": "Actinium",
+  "actinium.options.group.details": "Details",
+  "actinium.options.group.hud": "HUD",
+  "actinium.options.group.chunks": "Chunks",
+  "actinium.options.quality.default": "Default",
+  "actinium.options.weatherQuality": "Weather Quality",
+  "actinium.options.weatherQuality.tooltip": "How rain and snow are drawn. Fast draws them in a smaller area around you with fewer splash particles. Default follows the Graphics setting.",
+  "actinium.options.leavesQuality": "Leaves Quality",
+  "actinium.options.leavesQuality.tooltip": "Fancy leaves show the sky and blocks through their gaps. Fast leaves are solid and cheaper to draw in dense forests. Default follows the Graphics setting.",
+  "actinium.options.vignette": "Vignette",
+  "actinium.options.vignette.tooltip": "Darkens the edges of the screen slightly, as in vanilla."
 }

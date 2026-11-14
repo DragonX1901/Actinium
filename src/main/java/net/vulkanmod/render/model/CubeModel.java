@@ -1,139 +1,77 @@
 package net.vulkanmod.render.model;
 
-import java.util.Set;
 import net.minecraft.client.model.geom.ModelPart.Polygon;
 import net.minecraft.client.model.geom.ModelPart.Vertex;
-import net.minecraft.core.Direction;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
-public class CubeModel {
-   private Polygon[] polygons = new Polygon[6];
-   private int[] polygonAxes = new int[0];
-   public float minX;
-   public float minY;
-   public float minZ;
-   public float maxX;
-   public float maxY;
-   public float maxZ;
-   Vector3f[] vertices;
-   Vector3f[] transformed = new Vector3f[8];
+public final class CubeModel {
+   private static final byte[] NO_BYTES = new byte[0];
+   private static final float[] NO_FLOATS = new float[0];
 
-   public void setVertices(
-      int i, int j, float f, float g, float h, float k, float l, float m, float n, float o, float p, boolean bl, float q, float r, Set<Direction> set
-   ) {
-      this.minX = f;
-      this.minY = g;
-      this.minZ = h;
-      this.maxX = f + k;
-      this.maxY = g + l;
-      this.maxZ = h + m;
-      this.polygons = new Polygon[set.size()];
-      float s = this.maxX;
-      float t = this.maxY;
-      float u = this.maxZ;
-      f -= n;
-      g -= o;
-      h -= p;
-      s += n;
-      t += o;
-      u += p;
-      if (bl) {
-         float v = s;
-         s = f;
-         f = v;
+   private final Polygon[] polygons;
+   private final float[] corners;
+   private final byte[] cornerIndices;
+   private final float[] uvs;
+   private final byte[] axes;
+
+   public CubeModel(Polygon[] polygons) {
+      this.polygons = polygons;
+      int faces = polygons.length;
+      if (faces == 0) {
+         this.corners = NO_FLOATS;
+         this.cornerIndices = NO_BYTES;
+         this.uvs = NO_FLOATS;
+         this.axes = NO_BYTES;
+         return;
       }
 
-      this.vertices = new Vector3f[]{
-         new Vector3f(f, g, h),
-         new Vector3f(s, g, h),
-         new Vector3f(s, t, h),
-         new Vector3f(f, t, h),
-         new Vector3f(f, g, u),
-         new Vector3f(s, g, u),
-         new Vector3f(s, t, u),
-         new Vector3f(f, t, u)
-      };
+      float[] found = new float[24];
+      int cornerCount = 0;
+      byte[] indices = new byte[faces * 4];
+      float[] coords = new float[faces * 8];
+      byte[] faceAxes = new byte[faces];
+      for (int face = 0; face < faces; face++) {
+         Polygon polygon = polygons[face];
+         faceAxes[face] = (byte) axisOf(polygon.normal);
+         for (int corner = 0; corner < 4; corner++) {
+            Vertex vertex = polygon.vertices[corner];
+            float x = vertex.pos.x / 16.0F;
+            float y = vertex.pos.y / 16.0F;
+            float z = vertex.pos.z / 16.0F;
+            int index = -1;
+            for (int i = 0; i < cornerCount; i++) {
+               if (found[i * 3] == x && found[i * 3 + 1] == y && found[i * 3 + 2] == z) {
+                  index = i;
+                  break;
+               }
+            }
 
-      for (int i1 = 0; i1 < 8; i1++) {
-         this.vertices[i1].div(16.0F);
-         this.transformed[i1] = new Vector3f(0.0F);
+            if (index < 0) {
+               if (cornerCount == 8) {
+                  float[] grown = new float[found.length + 12];
+                  System.arraycopy(found, 0, grown, 0, found.length);
+                  found = grown;
+               }
+
+               index = cornerCount++;
+               found[index * 3] = x;
+               found[index * 3 + 1] = y;
+               found[index * 3 + 2] = z;
+            }
+
+            indices[face * 4 + corner] = (byte) index;
+            coords[face * 8 + corner * 2] = vertex.u;
+            coords[face * 8 + corner * 2 + 1] = vertex.v;
+         }
       }
 
-      Vertex vertex1 = new Vertex(this.transformed[0], 0.0F, 0.0F);
-      Vertex vertex2 = new Vertex(this.transformed[1], 0.0F, 8.0F);
-      Vertex vertex3 = new Vertex(this.transformed[2], 8.0F, 8.0F);
-      Vertex vertex4 = new Vertex(this.transformed[3], 8.0F, 0.0F);
-      Vertex vertex5 = new Vertex(this.transformed[4], 0.0F, 0.0F);
-      Vertex vertex6 = new Vertex(this.transformed[5], 0.0F, 8.0F);
-      Vertex vertex7 = new Vertex(this.transformed[6], 8.0F, 8.0F);
-      Vertex vertex8 = new Vertex(this.transformed[7], 8.0F, 0.0F);
-      float w = i;
-      float x = i + m;
-      float y = i + m + k;
-      float z = i + m + k + k;
-      float aa = i + m + k + m;
-      float ab = i + m + k + m + k;
-      float ac = j;
-      float ad = j + m;
-      float ae = j + m + l;
-      int idx = 0;
-      if (set.contains(Direction.DOWN)) {
-         this.polygons[idx++] = new Polygon(new Vertex[]{vertex6, vertex5, vertex1, vertex2}, x, ac, y, ad, q, r, bl, Direction.DOWN);
-      }
-
-      if (set.contains(Direction.UP)) {
-         this.polygons[idx++] = new Polygon(new Vertex[]{vertex3, vertex4, vertex8, vertex7}, y, ad, z, ac, q, r, bl, Direction.UP);
-      }
-
-      if (set.contains(Direction.WEST)) {
-         this.polygons[idx++] = new Polygon(new Vertex[]{vertex1, vertex5, vertex8, vertex4}, w, ad, x, ae, q, r, bl, Direction.WEST);
-      }
-
-      if (set.contains(Direction.NORTH)) {
-         this.polygons[idx++] = new Polygon(new Vertex[]{vertex2, vertex1, vertex4, vertex3}, x, ad, y, ae, q, r, bl, Direction.NORTH);
-      }
-
-      if (set.contains(Direction.EAST)) {
-         this.polygons[idx++] = new Polygon(new Vertex[]{vertex6, vertex2, vertex3, vertex7}, y, ad, aa, ae, q, r, bl, Direction.EAST);
-      }
-
-      if (set.contains(Direction.SOUTH)) {
-         this.polygons[idx] = new Polygon(new Vertex[]{vertex5, vertex6, vertex7, vertex8}, aa, ad, ab, ae, q, r, bl, Direction.SOUTH);
-      }
-
-      this.polygonAxes = new int[this.polygons.length];
-      for (int face = 0; face < this.polygons.length; face++) {
-         this.polygonAxes[face] = axisOf(this.polygons[face].normal);
-      }
-   }
-
-   public void transformVertices(Matrix4f matrix) {
-      Vector3f origin = this.vertices[0];
-      float dx = this.vertices[1].x - origin.x;
-      float dy = this.vertices[3].y - origin.y;
-      float dz = this.vertices[4].z - origin.z;
-      float x0 = Math.fma(matrix.m00(), origin.x, Math.fma(matrix.m10(), origin.y, Math.fma(matrix.m20(), origin.z, matrix.m30())));
-      float y0 = Math.fma(matrix.m01(), origin.x, Math.fma(matrix.m11(), origin.y, Math.fma(matrix.m21(), origin.z, matrix.m31())));
-      float z0 = Math.fma(matrix.m02(), origin.x, Math.fma(matrix.m12(), origin.y, Math.fma(matrix.m22(), origin.z, matrix.m32())));
-      float xx = matrix.m00() * dx;
-      float xy = matrix.m01() * dx;
-      float xz = matrix.m02() * dx;
-      float yx = matrix.m10() * dy;
-      float yy = matrix.m11() * dy;
-      float yz = matrix.m12() * dy;
-      float zx = matrix.m20() * dz;
-      float zy = matrix.m21() * dz;
-      float zz = matrix.m22() * dz;
-      Vector3f[] out = this.transformed;
-      out[0].set(x0, y0, z0);
-      out[1].set(x0 + xx, y0 + xy, z0 + xz);
-      out[2].set(x0 + xx + yx, y0 + xy + yy, z0 + xz + yz);
-      out[3].set(x0 + yx, y0 + yy, z0 + yz);
-      out[4].set(x0 + zx, y0 + zy, z0 + zz);
-      out[5].set(x0 + xx + zx, y0 + xy + zy, z0 + xz + zz);
-      out[6].set(x0 + xx + yx + zx, y0 + xy + yy + zy, z0 + xz + yz + zz);
-      out[7].set(x0 + yx + zx, y0 + yy + zy, z0 + yz + zz);
+      float[] trimmed = new float[cornerCount * 3];
+      System.arraycopy(found, 0, trimmed, 0, trimmed.length);
+      this.corners = trimmed;
+      this.cornerIndices = indices;
+      this.uvs = coords;
+      this.axes = faceAxes;
    }
 
    private static int axisOf(Vector3f n) {
@@ -148,11 +86,47 @@ public class CubeModel {
       return -1;
    }
 
-   public int[] getPolygonAxes() {
-      return this.polygonAxes;
+   public int faceCount() {
+      return this.axes.length;
    }
 
-   public Polygon[] getPolygons() {
-      return this.polygons;
+   public int cornerCount() {
+      return this.corners.length / 3;
+   }
+
+   public void transformCorners(Matrix4f matrix, float[] out) {
+      float[] c = this.corners;
+      float m00 = matrix.m00(), m01 = matrix.m01(), m02 = matrix.m02();
+      float m10 = matrix.m10(), m11 = matrix.m11(), m12 = matrix.m12();
+      float m20 = matrix.m20(), m21 = matrix.m21(), m22 = matrix.m22();
+      float m30 = matrix.m30(), m31 = matrix.m31(), m32 = matrix.m32();
+      for (int i = 0; i < c.length; i += 3) {
+         float x = c[i];
+         float y = c[i + 1];
+         float z = c[i + 2];
+         out[i] = Math.fma(m00, x, Math.fma(m10, y, Math.fma(m20, z, m30)));
+         out[i + 1] = Math.fma(m01, x, Math.fma(m11, y, Math.fma(m21, z, m31)));
+         out[i + 2] = Math.fma(m02, x, Math.fma(m12, y, Math.fma(m22, z, m32)));
+      }
+   }
+
+   public int axis(int face) {
+      return this.axes[face];
+   }
+
+   public Vector3f normal(int face) {
+      return this.polygons[face].normal;
+   }
+
+   public int cornerIndex(int face, int corner) {
+      return this.cornerIndices[face * 4 + corner];
+   }
+
+   public float u(int face, int corner) {
+      return this.uvs[face * 8 + corner * 2];
+   }
+
+   public float v(int face, int corner) {
+      return this.uvs[face * 8 + corner * 2 + 1];
    }
 }

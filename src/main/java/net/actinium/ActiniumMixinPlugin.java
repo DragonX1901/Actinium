@@ -82,6 +82,9 @@ public class ActiniumMixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.startsWith("net.actinium.mixin.compat.Flywheel")) {
             return modLoaded("flywheel") && !rendererMode();
         }
+        if (mixinClassName.startsWith("net.actinium.mixin.compat.Xaero")) {
+            return modLoaded("xaerominimap") && !rendererMode();
+        }
         if (mixinClassName.startsWith("net.actinium.mixin.compat.Veil")) {
             return modLoaded("veil") && !rendererMode();
         }

@@ -31,6 +31,9 @@ public class Config {
    public boolean animateOnlyVisibleTextures = true;
    public int fpsCounter = 0;
    public int fpsCounterPosition = 0;
+   public int leavesQuality = 0;
+   public int weatherQuality = 0;
+   public boolean vignette = true;
    private static Path CONFIG_PATH;
    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().excludeFieldsWithModifiers(new int[]{2}).create();
 

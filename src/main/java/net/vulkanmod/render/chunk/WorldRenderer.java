@@ -260,6 +260,7 @@ public class WorldRenderer {
    }
 
    public void allChanged() {
+      TerrainRenderType.updateMapping();
       if (this.level != null) {
          this.level.clearTintCaches();
          this.renderRegionCache.clear();

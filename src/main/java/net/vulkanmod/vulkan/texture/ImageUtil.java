@@ -191,6 +191,8 @@ public abstract class ImageUtil {
          blit.dstOffsets(1, VkOffset3D.calloc(stack).set(dstImage.width, dstImage.height, 1));
          blit.dstSubresource().aspectMask(dstImage.aspect).mipLevel(0).baseArrayLayer(0).layerCount(1);
          VK10.vkCmdBlitImage(commandBuffer, srcImage.getId(), 6, dstImage.getId(), 7, blit, filtering);
+         srcImage.markFrameUse(commandBuffer);
+         dstImage.markFrameUse(commandBuffer);
          dstImage.transitionImageLayout(stack, commandBuffer, 5);
       } catch (Throwable var7) {
          if (stack != null) {
@@ -209,7 +211,30 @@ public abstract class ImageUtil {
       }
    }
 
-   public static void blitFramebuffer(VulkanImage dstImage, int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1) {
+   public static void blitRegion(VulkanImage srcImage, VulkanImage dstImage, int srcX0, int srcY0, int srcX1, int srcY1,
+                                 int dstX0, int dstY0, int dstX1, int dstY1, int filtering) {
+      try (MemoryStack stack = MemoryStack.stackPush()) {
+         VkCommandBuffer commandBuffer = Renderer.getCommandBuffer();
+         Renderer.getInstance().endRenderPass(commandBuffer);
+         srcImage.transitionImageLayout(stack, commandBuffer, 6);
+         dstImage.transitionImageLayout(stack, commandBuffer, 7);
+         VkImageBlit.Buffer blit = VkImageBlit.calloc(1, stack);
+         blit.srcOffsets(0, VkOffset3D.calloc(stack).set(clamp(srcX0, srcImage.width), clamp(srcImage.height - srcY0, srcImage.height), 0));
+         blit.srcOffsets(1, VkOffset3D.calloc(stack).set(clamp(srcX1, srcImage.width), clamp(srcImage.height - srcY1, srcImage.height), 1));
+         blit.srcSubresource().aspectMask(srcImage.aspect).mipLevel(0).baseArrayLayer(0).layerCount(1);
+         blit.dstOffsets(0, VkOffset3D.calloc(stack).set(clamp(dstX0, dstImage.width), clamp(dstImage.height - dstY0, dstImage.height), 0));
+         blit.dstOffsets(1, VkOffset3D.calloc(stack).set(clamp(dstX1, dstImage.width), clamp(dstImage.height - dstY1, dstImage.height), 1));
+         blit.dstSubresource().aspectMask(dstImage.aspect).mipLevel(0).baseArrayLayer(0).layerCount(1);
+         VK10.vkCmdBlitImage(commandBuffer, srcImage.getId(), 6, dstImage.getId(), 7, blit, filtering);
+         srcImage.markFrameUse(commandBuffer);
+         dstImage.markFrameUse(commandBuffer);
+         srcImage.transitionImageLayout(stack, commandBuffer, 5);
+         dstImage.transitionImageLayout(stack, commandBuffer, 5);
+      }
+   }
+
+   private static int clamp(int value, int max) {
+      return Math.max(0, Math.min(value, max));
    }
 
    public static void recordMipmaps(MemoryStack stack, VkCommandBuffer commandBuffer, VulkanImage image) {

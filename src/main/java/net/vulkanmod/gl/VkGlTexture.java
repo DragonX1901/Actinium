@@ -337,7 +337,7 @@ public class VkGlTexture {
       }
 
       if (VulkanImage.isDepthFormat(vkFormat)) {
-         this.vulkanImage = VulkanImage.createDepthImage(vkFormat, width, height, 37, false, true);
+         this.vulkanImage = VulkanImage.createDepthImage(vkFormat, width, height, 39, false, true);
       } else {
          this.vulkanImage = new VulkanImage.Builder(width, height)
             .setName(String.format("GlTexture %d", this.id))

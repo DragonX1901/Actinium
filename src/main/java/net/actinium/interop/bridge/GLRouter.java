@@ -33,6 +33,7 @@ import static org.lwjgl.system.libffi.LibFFI.ffi_type_float;
 import static org.lwjgl.system.libffi.LibFFI.ffi_type_pointer;
 import static org.lwjgl.system.libffi.LibFFI.ffi_type_sint32;
 import static org.lwjgl.system.libffi.LibFFI.ffi_type_uint32;
+import static org.lwjgl.system.libffi.LibFFI.ffi_type_uint8;
 import static org.lwjgl.system.libffi.LibFFI.ffi_type_void;
 
 public final class GLRouter {
@@ -85,6 +86,21 @@ public final class GLRouter {
     private static long getTexLevelParameteriv;
     private static long getTexImage;
     private static long compressedTexImage2D;
+    private static long enable;
+    private static long disable;
+    private static long isEnabled;
+    private static long scissor;
+    private static long bindFramebuffer;
+    private static long blitFramebuffer;
+    private static final int GL_SCISSOR_TEST = 0x0C11;
+    private static final int GL_BLEND = 0x0BE2;
+    private static final int GL_DEPTH_TEST = 0x0B71;
+    private static final int GL_CULL_FACE = 0x0B44;
+    private static final int GL_READ_FRAMEBUFFER = 0x8CA8;
+    private static boolean scissorTest;
+    private static final int[] scissorBox = new int[4];
+    private static boolean readRouted = true;
+    private static boolean drawRouted = true;
 
     private static boolean installed;
     private static int stagedUploads;
@@ -164,6 +180,21 @@ public final class GLRouter {
                             i(args, 6), p(args, 7)),
                     ffi_type_void, ffi_type_uint32, ffi_type_sint32, ffi_type_uint32, ffi_type_sint32, ffi_type_sint32,
                     ffi_type_sint32, ffi_type_sint32, ffi_type_pointer);
+            enable = prepare(capabilities, "glEnable", (ret, args) -> setCapability(i(args, 0), true),
+                    ffi_type_void, ffi_type_uint32);
+            disable = prepare(capabilities, "glDisable", (ret, args) -> setCapability(i(args, 0), false),
+                    ffi_type_void, ffi_type_uint32);
+            isEnabled = prepare(capabilities, "glIsEnabled", (ret, args) -> APIUtil.apiClosureRetP(ret, isCapabilityEnabled(i(args, 0)) ? 1L : 0L),
+                    ffi_type_uint8, ffi_type_uint32);
+            scissor = prepare(capabilities, "glScissor", (ret, args) -> scissor(i(args, 0), i(args, 1), i(args, 2), i(args, 3)),
+                    ffi_type_void, ffi_type_sint32, ffi_type_sint32, ffi_type_sint32, ffi_type_sint32);
+            bindFramebuffer = prepare(capabilities, "glBindFramebuffer", (ret, args) -> bindFramebuffer(i(args, 0), i(args, 1)),
+                    ffi_type_void, ffi_type_uint32, ffi_type_uint32);
+            blitFramebuffer = prepare(capabilities, "glBlitFramebuffer",
+                    (ret, args) -> blitFramebuffer(i(args, 0), i(args, 1), i(args, 2), i(args, 3), i(args, 4), i(args, 5),
+                            i(args, 6), i(args, 7), i(args, 8), i(args, 9)),
+                    ffi_type_void, ffi_type_sint32, ffi_type_sint32, ffi_type_sint32, ffi_type_sint32, ffi_type_sint32,
+                    ffi_type_sint32, ffi_type_sint32, ffi_type_sint32, ffi_type_uint32, ffi_type_uint32);
             prepare(capabilities, "glClear", (ret, args) -> VRenderSystem.clear(i(args, 0)),
                     ffi_type_void, ffi_type_uint32);
             prepare(capabilities, "glClearColor", (ret, args) -> VRenderSystem.setClearColor(f(args, 0), f(args, 1), f(args, 2), f(args, 3)),
@@ -189,7 +220,8 @@ public final class GLRouter {
 
         installed = true;
         LOGGER.info("Routing {} OpenGL entry points into the Vulkan renderer: 2D textures, readback, clears and error "
-                + "queries that mods make through LWJGL directly now reach the same objects as GlStateManager's. "
+                + "queries, scissor and blend/depth/cull switches, framebuffer binds and blits that mods make through "
+                + "LWJGL directly now reach the same objects as GlStateManager's. "
                 + "Other texture targets stay in the hidden context.", ROUTES.size());
         return true;
     }
@@ -249,6 +281,86 @@ public final class GLRouter {
     private static void failed(String name, Throwable t) {
         if (FAILED.add(name)) {
             LOGGER.warn("Routed {} failed; the call was dropped. Later failures of {} are not logged.", name, name, t);
+        }
+    }
+
+    private static void setCapability(int capability, boolean on) {
+        switch (capability) {
+            case GL_SCISSOR_TEST -> {
+                scissorTest = on;
+                if (on) {
+                    GlStateManager._scissorBox(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
+                } else {
+                    GlStateManager._disableScissorTest();
+                }
+            }
+            case GL_BLEND -> {
+                if (on) {
+                    GlStateManager._enableBlend();
+                } else {
+                    GlStateManager._disableBlend();
+                }
+            }
+            case GL_DEPTH_TEST -> {
+                if (on) {
+                    GlStateManager._enableDepthTest();
+                } else {
+                    GlStateManager._disableDepthTest();
+                }
+            }
+            case GL_CULL_FACE -> {
+                if (on) {
+                    GlStateManager._enableCull();
+                } else {
+                    GlStateManager._disableCull();
+                }
+            }
+            default -> JNI.callV(capability, on ? enable : disable);
+        }
+    }
+
+    private static boolean isCapabilityEnabled(int capability) {
+        return switch (capability) {
+            case GL_SCISSOR_TEST -> scissorTest;
+            case GL_BLEND -> GlStateManager.BLEND.mode.enabled;
+            case GL_DEPTH_TEST -> GlStateManager.DEPTH.mode.enabled;
+            case GL_CULL_FACE -> VRenderSystem.cull;
+            default -> JNI.callZ(capability, isEnabled);
+        };
+    }
+
+    private static void scissor(int x, int y, int width, int height) {
+        scissorBox[0] = x;
+        scissorBox[1] = y;
+        scissorBox[2] = width;
+        scissorBox[3] = height;
+        if (scissorTest) {
+            GlStateManager._scissorBox(x, y, width, height);
+        }
+    }
+
+    private static void bindFramebuffer(int target, int name) {
+        boolean routed = VkGlFramebuffer.isKnown(name);
+        if (target != GL_READ_FRAMEBUFFER) {
+            drawRouted = routed;
+        }
+        if (target != 0x8CA9) {
+            readRouted = routed;
+        }
+
+        if (routed) {
+            GlStateManager._glBindFramebuffer(target, name);
+        } else {
+            JNI.callV(target, name, bindFramebuffer);
+        }
+    }
+
+    private static void blitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1,
+                                        int mask, int filter) {
+        if (readRouted && drawRouted) {
+            VkGlFramebuffer.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        } else {
+            JNI.callV(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter, blitFramebuffer);
         }
     }
 

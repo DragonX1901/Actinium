@@ -31,11 +31,11 @@ public final class ActiniumOptionPages {
     }
 
     public static List<OptionPage> build() {
-        return List.of(video(), graphics(), optimizations(), other());
+        return List.of(general(), quality(), performance(), advanced(), actinium());
     }
 
 
-    private static OptionPage video() {
+    private static OptionPage general() {
         OptionStorage<Options> vanilla = VanillaOptionsStorage.INSTANCE;
         OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
         Minecraft minecraft = Minecraft.getInstance();
@@ -48,6 +48,22 @@ public final class ActiniumOptionPages {
         List<VideoModeSet> resolutions = vulkanModRunning
                 ? Arrays.asList(VideoModeManager.getVideoResolutions())
                 : List.of(VideoModeSet.getDummy());
+
+        Option<Integer> renderDistance = OptionImpl.<Options, Integer>of(vanilla)
+                .name(Component.translatable("options.renderDistance"))
+                .tooltip(Component.translatable("actinium.options.renderDistance.tooltip"))
+                .impact(OptionImpact.HIGH)
+                .control(new SliderControl(2, 32, 1, v -> Component.translatable("options.chunks", v)))
+                .binding(o -> o.renderDistance().get(), (o, v) -> o.renderDistance().set(v))
+                .build();
+
+        Option<Integer> simulationDistance = OptionImpl.<Options, Integer>of(vanilla)
+                .name(Component.translatable("options.simulationDistance"))
+                .tooltip(Component.translatable("actinium.options.simulationDistance.tooltip"))
+                .impact(OptionImpact.MEDIUM)
+                .control(new SliderControl(5, 32, 1, v -> Component.translatable("options.chunks", v)))
+                .binding(o -> o.simulationDistance().get(), (o, v) -> o.simulationDistance().set(v))
+                .build();
 
         Option<WindowMode> windowMode = OptionImpl.<Config, WindowMode>of(vk)
                 .name(Component.translatable("vulkanmod.options.windowMode"))
@@ -156,34 +172,6 @@ public final class ActiniumOptionPages {
                 .binding(o -> o.menuBackgroundBlurriness().get(), (o, v) -> o.menuBackgroundBlurriness().set(v))
                 .build();
 
-        Option<Integer> fpsCounter = OptionImpl.<Config, Integer>of(vk)
-                .name(Component.translatable("actinium.options.fpsCounter"))
-                .tooltip(Component.translatable("actinium.options.fpsCounter.tooltip"))
-                .impact(OptionImpact.LOW)
-                .control(new CyclingControl<>(List.of(0, 1, 2), v -> switch (v) {
-                    case 1 -> Component.translatable("actinium.options.fpsCounter.simple");
-                    case 2 -> Component.translatable("actinium.options.fpsCounter.detailed");
-                    default -> CommonComponents.OPTION_OFF;
-                }))
-                .binding(c -> Math.clamp(c.fpsCounter, 0, 2), (c, v) -> c.fpsCounter = v)
-                .build();
-
-        Option<Integer> fpsCounterPosition = OptionImpl.<Config, Integer>of(vk)
-                .name(Component.translatable("actinium.options.fpsCounterPosition"))
-                .tooltip(Component.translatable("actinium.options.fpsCounterPosition.tooltip"))
-                .impact(OptionImpact.LOW)
-                .control(new CyclingControl<>(List.of(0, 1, 2, 3), v -> Component.translatable(switch (v) {
-                    case 1 -> "actinium.options.fpsCounterPosition.topRight";
-                    case 2 -> "actinium.options.fpsCounterPosition.bottomLeft";
-                    case 3 -> "actinium.options.fpsCounterPosition.bottomRight";
-                    default -> "actinium.options.fpsCounterPosition.topLeft";
-                })))
-                .binding(c -> Math.clamp(c.fpsCounterPosition, 0, 3), (c, v) -> c.fpsCounterPosition = v)
-                .availableWhen(() -> fpsCounter.value() != 0
-                        ? null
-                        : Component.translatable("actinium.options.unavailable.fpsCounterOff"))
-                .build();
-
         Option<Boolean> viewBobbing = OptionImpl.<Options, Boolean>of(vanilla)
                 .name(Component.translatable("options.viewBobbing"))
                 .tooltip(Component.translatable("actinium.options.viewBobbing.tooltip"))
@@ -221,14 +209,15 @@ public final class ActiniumOptionPages {
                 .binding(o -> o.showAutosaveIndicator().get(), (o, v) -> o.showAutosaveIndicator().set(v))
                 .build();
 
-        return OptionPage.of("vulkanmod.options.pages.video",
+        return OptionPage.of("actinium.options.pages.general",
+                OptionGroup.of("actinium.options.group.world",
+                        renderDistance, simulationDistance, brightness),
                 OptionGroup.of("actinium.options.group.display",
-                        windowMode, resolution, refreshRate, framerateLimit, vsync),
+                        guiScale, windowMode, resolution, refreshRate, vsync, framerateLimit),
                 OptionGroup.of("actinium.options.group.interface",
-                        guiScale, brightness, menuBlur, fpsCounter, fpsCounterPosition),
+                        viewBobbing, attackIndicator, autosaveIndicator),
                 OptionGroup.of("actinium.options.group.effects",
-                        viewBobbing, distortion, fovEffects, glintSpeed, glintStrength,
-                        attackIndicator, autosaveIndicator));
+                        menuBlur, distortion, fovEffects, glintSpeed, glintStrength));
     }
 
     private static VideoModeSet resolutionOf(Config config, List<VideoModeSet> resolutions) {
@@ -246,34 +235,10 @@ public final class ActiniumOptionPages {
     }
 
 
-    private static OptionPage graphics() {
+    private static OptionPage quality() {
         OptionStorage<Options> vanilla = VanillaOptionsStorage.INSTANCE;
         OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
         Minecraft minecraft = Minecraft.getInstance();
-
-        Option<Integer> renderDistance = OptionImpl.<Options, Integer>of(vanilla)
-                .name(Component.translatable("options.renderDistance"))
-                .tooltip(Component.translatable("actinium.options.renderDistance.tooltip"))
-                .impact(OptionImpact.HIGH)
-                .control(new SliderControl(2, 32, 1, v -> Component.translatable("options.chunks", v)))
-                .binding(o -> o.renderDistance().get(), (o, v) -> o.renderDistance().set(v))
-                .build();
-
-        Option<Integer> simulationDistance = OptionImpl.<Options, Integer>of(vanilla)
-                .name(Component.translatable("options.simulationDistance"))
-                .tooltip(Component.translatable("actinium.options.simulationDistance.tooltip"))
-                .impact(OptionImpact.MEDIUM)
-                .control(new SliderControl(5, 32, 1, v -> Component.translatable("options.chunks", v)))
-                .binding(o -> o.simulationDistance().get(), (o, v) -> o.simulationDistance().set(v))
-                .build();
-
-        Option<PrioritizeChunkUpdates> chunkUpdates = OptionImpl.<Options, PrioritizeChunkUpdates>of(vanilla)
-                .name(Component.translatable("options.prioritizeChunkUpdates"))
-                .tooltip(Component.translatable("actinium.options.prioritizeChunkUpdates.tooltip"))
-                .impact(OptionImpact.MEDIUM)
-                .control(CyclingControl.ofEnum(PrioritizeChunkUpdates.class, PrioritizeChunkUpdates::getCaption))
-                .binding(o -> o.prioritizeChunkUpdates().get(), (o, v) -> o.prioritizeChunkUpdates().set(v))
-                .build();
 
         Option<GraphicsStatus> graphicsMode = OptionImpl.<Options, GraphicsStatus>of(vanilla)
                 .name(Component.translatable("options.graphics"))
@@ -300,6 +265,19 @@ public final class ActiniumOptionPages {
                 .impact(OptionImpact.LOW)
                 .control(CyclingControl.ofEnum(CloudStatus.class, CloudStatus::getCaption))
                 .binding(o -> o.cloudStatus().get(), (o, v) -> o.cloudStatus().set(v))
+                .build();
+
+        Option<Integer> weatherQuality = qualityOption(vk, "actinium.options.weatherQuality",
+                "actinium.options.weatherQuality.tooltip", c -> c.weatherQuality, (c, v) -> c.weatherQuality = v, false);
+        Option<Integer> leavesQuality = qualityOption(vk, "actinium.options.leavesQuality",
+                "actinium.options.leavesQuality.tooltip", c -> c.leavesQuality, (c, v) -> c.leavesQuality = v, true);
+
+        Option<Boolean> vignette = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("actinium.options.vignette"))
+                .tooltip(Component.translatable("actinium.options.vignette.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new TickBoxControl())
+                .binding(c -> c.vignette, (c, v) -> c.vignette = v)
                 .build();
 
         Option<Integer> smoothLighting = OptionImpl.<Config, Integer>of(vk)
@@ -359,20 +337,48 @@ public final class ActiniumOptionPages {
                 .flags(OptionFlag.REQUIRES_ASSET_RELOAD)
                 .build();
 
-        return OptionPage.of("vulkanmod.options.pages.graphics",
-                OptionGroup.of("actinium.options.group.world",
-                        renderDistance, simulationDistance, chunkUpdates),
+        return OptionPage.of("actinium.options.pages.quality",
                 OptionGroup.of("actinium.options.group.quality",
-                        graphicsMode, particles, clouds, smoothLighting, biomeBlend),
-                OptionGroup.of("actinium.options.group.entities",
-                        entityShadows, entityDistance),
+                        graphicsMode),
+                OptionGroup.of("actinium.options.group.details",
+                        clouds, weatherQuality, leavesQuality, particles, smoothLighting, biomeBlend,
+                        entityDistance, entityShadows, vignette),
                 OptionGroup.of("actinium.options.group.textures",
                         mipmapLevels));
     }
 
 
-    private static OptionPage optimizations() {
+    private static OptionPage actinium() {
         OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
+        OptionStorage<ActiniumOptions> actinium = ActiniumOptionsStorage.INSTANCE;
+
+        Option<Integer> fpsCounter = OptionImpl.<Config, Integer>of(vk)
+                .name(Component.translatable("actinium.options.fpsCounter"))
+                .tooltip(Component.translatable("actinium.options.fpsCounter.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new CyclingControl<>(List.of(0, 1, 2), v -> switch (v) {
+                    case 1 -> Component.translatable("actinium.options.fpsCounter.simple");
+                    case 2 -> Component.translatable("actinium.options.fpsCounter.detailed");
+                    default -> CommonComponents.OPTION_OFF;
+                }))
+                .binding(c -> Math.clamp(c.fpsCounter, 0, 2), (c, v) -> c.fpsCounter = v)
+                .build();
+
+        Option<Integer> fpsCounterPosition = OptionImpl.<Config, Integer>of(vk)
+                .name(Component.translatable("actinium.options.fpsCounterPosition"))
+                .tooltip(Component.translatable("actinium.options.fpsCounterPosition.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new CyclingControl<>(List.of(0, 1, 2, 3), v -> Component.translatable(switch (v) {
+                    case 1 -> "actinium.options.fpsCounterPosition.topRight";
+                    case 2 -> "actinium.options.fpsCounterPosition.bottomLeft";
+                    case 3 -> "actinium.options.fpsCounterPosition.bottomRight";
+                    default -> "actinium.options.fpsCounterPosition.topLeft";
+                })))
+                .binding(c -> Math.clamp(c.fpsCounterPosition, 0, 3), (c, v) -> c.fpsCounterPosition = v)
+                .availableWhen(() -> fpsCounter.value() != 0
+                        ? null
+                        : Component.translatable("actinium.options.unavailable.fpsCounterOff"))
+                .build();
 
         Option<Integer> advCulling = OptionImpl.<Config, Integer>of(vk)
                 .name(Component.translatable("vulkanmod.options.advCulling"))
@@ -411,14 +417,6 @@ public final class ActiniumOptionPages {
                 })
                 .build();
 
-        Option<Boolean> entityCulling = OptionImpl.<Config, Boolean>of(vk)
-                .name(Component.translatable("vulkanmod.options.entityCulling"))
-                .tooltip(Component.translatable("vulkanmod.options.entityCulling.tooltip"))
-                .impact(OptionImpact.HIGH)
-                .control(new TickBoxControl())
-                .binding(c -> c.entityCulling, (c, v) -> c.entityCulling = v)
-                .build();
-
         Option<Boolean> uniqueOpaqueLayer = OptionImpl.<Config, Boolean>of(vk)
                 .name(Component.translatable("vulkanmod.options.uniqueOpaqueLayer"))
                 .tooltip(Component.translatable("vulkanmod.options.uniqueOpaqueLayer.tooltip"))
@@ -443,15 +441,6 @@ public final class ActiniumOptionPages {
                 .flags(OptionFlag.REQUIRES_RENDERER_RELOAD)
                 .build();
 
-        Option<Boolean> backFaceCulling = OptionImpl.<Config, Boolean>of(vk)
-                .name(Component.translatable("vulkanmod.options.backfaceCulling"))
-                .tooltip(Component.translatable("vulkanmod.options.backfaceCulling.tooltip"))
-                .impact(OptionImpact.HIGH)
-                .control(new TickBoxControl())
-                .binding(c -> c.backFaceCulling, (c, v) -> c.backFaceCulling = v)
-                .flags(OptionFlag.REQUIRES_RENDERER_RELOAD)
-                .build();
-
         Option<Boolean> leavesCulling = OptionImpl.<Config, Boolean>of(vk)
                 .name(Component.translatable("actinium.options.leavesCulling"))
                 .tooltip(Component.translatable("actinium.options.leavesCulling.tooltip"))
@@ -462,17 +451,47 @@ public final class ActiniumOptionPages {
                 .build();
 
 
-        return OptionPage.of("vulkanmod.options.pages.optimizations",
+        Option<Boolean> textureAnimations = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("vulkanmod.options.textureAnimations"))
+                .tooltip(Component.translatable("actinium.options.textureAnimations.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new TickBoxControl())
+                .binding(c -> c.textureAnimations, (c, v) -> c.textureAnimations = v)
+                .build();
+
+        Option<Boolean> glContextBridge = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
+                .name(Component.translatable("actinium.options.glContextBridge"))
+                .tooltip(Component.translatable("actinium.options.glContextBridge.tooltip"))
+                .impact(OptionImpact.LOW)
+                .control(new TickBoxControl())
+                .binding(o -> o.glContextBridge, (o, v) -> o.glContextBridge = v)
+                .flags(OptionFlag.REQUIRES_GAME_RESTART)
+                .build();
+
+        Option<Boolean> interopEnabled = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
+                .name(Component.translatable("actinium.options.interopEnabled"))
+                .tooltip(Component.translatable("actinium.options.interopEnabled.tooltip"))
+                .impact(OptionImpact.VARIES)
+                .control(new TickBoxControl())
+                .binding(o -> o.interopEnabled, (o, v) -> o.interopEnabled = v)
+                .flags(OptionFlag.REQUIRES_GAME_RESTART)
+                .build();
+
+        return OptionPage.of("actinium.options.pages.actinium",
                 OptionGroup.of("actinium.options.group.culling",
-                        advCulling, occlusionCulling, entityCulling, backFaceCulling, leavesCulling),
+                        advCulling, occlusionCulling, leavesCulling),
                 OptionGroup.of("actinium.options.group.drawing",
-                        uniqueOpaqueLayer, solidEarlyZ, indirectDraw));
+                        indirectDraw, uniqueOpaqueLayer, solidEarlyZ, textureAnimations),
+                OptionGroup.of("actinium.options.group.hud",
+                        fpsCounter, fpsCounterPosition),
+                OptionGroup.of("actinium.options.group.compatibility",
+                        glContextBridge, interopEnabled));
     }
 
 
-    private static OptionPage other() {
+    private static OptionPage performance() {
+        OptionStorage<Options> vanilla = VanillaOptionsStorage.INSTANCE;
         OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
-        OptionStorage<ActiniumOptions> actinium = ActiniumOptionsStorage.INSTANCE;
 
         int maxThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
         Option<Integer> builderThreads = OptionImpl.<Config, Integer>of(vk)
@@ -491,6 +510,50 @@ public final class ActiniumOptionPages {
                 })
                 .build();
 
+        Option<Boolean> animateOnlyVisible = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("actinium.options.animateOnlyVisibleTextures"))
+                .tooltip(Component.translatable("actinium.options.animateOnlyVisibleTextures.tooltip"))
+                .impact(OptionImpact.MEDIUM)
+                .control(new TickBoxControl())
+                .binding(c -> c.animateOnlyVisibleTextures, (c, v) -> c.animateOnlyVisibleTextures = v)
+                .build();
+
+        Option<PrioritizeChunkUpdates> chunkUpdates = OptionImpl.<Options, PrioritizeChunkUpdates>of(vanilla)
+                .name(Component.translatable("options.prioritizeChunkUpdates"))
+                .tooltip(Component.translatable("actinium.options.prioritizeChunkUpdates.tooltip"))
+                .impact(OptionImpact.MEDIUM)
+                .control(CyclingControl.ofEnum(PrioritizeChunkUpdates.class, PrioritizeChunkUpdates::getCaption))
+                .binding(o -> o.prioritizeChunkUpdates().get(), (o, v) -> o.prioritizeChunkUpdates().set(v))
+                .build();
+
+        Option<Boolean> entityCulling = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("vulkanmod.options.entityCulling"))
+                .tooltip(Component.translatable("vulkanmod.options.entityCulling.tooltip"))
+                .impact(OptionImpact.HIGH)
+                .control(new TickBoxControl())
+                .binding(c -> c.entityCulling, (c, v) -> c.entityCulling = v)
+                .build();
+
+        Option<Boolean> backFaceCulling = OptionImpl.<Config, Boolean>of(vk)
+                .name(Component.translatable("vulkanmod.options.backfaceCulling"))
+                .tooltip(Component.translatable("vulkanmod.options.backfaceCulling.tooltip"))
+                .impact(OptionImpact.HIGH)
+                .control(new TickBoxControl())
+                .binding(c -> c.backFaceCulling, (c, v) -> c.backFaceCulling = v)
+                .flags(OptionFlag.REQUIRES_RENDERER_RELOAD)
+                .build();
+
+        return OptionPage.of("actinium.options.pages.performance",
+                OptionGroup.of("actinium.options.group.chunks",
+                        builderThreads, chunkUpdates),
+                OptionGroup.of("actinium.options.group.rendering",
+                        animateOnlyVisible, entityCulling, backFaceCulling));
+    }
+
+
+    private static OptionPage advanced() {
+        OptionStorage<Config> vk = VulkanModOptionsStorage.INSTANCE;
+
         Option<Integer> frameQueue = OptionImpl.<Config, Integer>of(vk)
                 .name(Component.translatable("vulkanmod.options.frameQueue"))
                 .tooltip(Component.translatable("vulkanmod.options.frameQueue.tooltip"))
@@ -498,22 +561,6 @@ public final class ActiniumOptionPages {
                 .control(new SliderControl(2, 5, 1, v -> Component.literal(String.valueOf(v))))
                 .binding(c -> Math.clamp(c.frameQueueSize, 2, 5), (c, v) -> c.frameQueueSize = v)
                 .flags(OptionFlag.REQUIRES_SWAPCHAIN_RECREATE)
-                .build();
-
-        Option<Boolean> textureAnimations = OptionImpl.<Config, Boolean>of(vk)
-                .name(Component.translatable("vulkanmod.options.textureAnimations"))
-                .tooltip(Component.translatable("actinium.options.textureAnimations.tooltip"))
-                .impact(OptionImpact.LOW)
-                .control(new TickBoxControl())
-                .binding(c -> c.textureAnimations, (c, v) -> c.textureAnimations = v)
-                .build();
-
-        Option<Boolean> animateOnlyVisible = OptionImpl.<Config, Boolean>of(vk)
-                .name(Component.translatable("actinium.options.animateOnlyVisibleTextures"))
-                .tooltip(Component.translatable("actinium.options.animateOnlyVisibleTextures.tooltip"))
-                .impact(OptionImpact.MEDIUM)
-                .control(new TickBoxControl())
-                .binding(c -> c.animateOnlyVisibleTextures, (c, v) -> c.animateOnlyVisibleTextures = v)
                 .build();
 
         Option<Boolean> wayland = OptionImpl.<Config, Boolean>of(vk)
@@ -544,33 +591,34 @@ public final class ActiniumOptionPages {
                 .flags(OptionFlag.REQUIRES_GAME_RESTART)
                 .build();
 
-        Option<Boolean> glContextBridge = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
-                .name(Component.translatable("actinium.options.glContextBridge"))
-                .tooltip(Component.translatable("actinium.options.glContextBridge.tooltip"))
-                .impact(OptionImpact.LOW)
-                .control(new TickBoxControl())
-                .binding(o -> o.glContextBridge, (o, v) -> o.glContextBridge = v)
-                .flags(OptionFlag.REQUIRES_GAME_RESTART)
-                .build();
-
-        Option<Boolean> interopEnabled = OptionImpl.<ActiniumOptions, Boolean>of(actinium)
-                .name(Component.translatable("actinium.options.interopEnabled"))
-                .tooltip(Component.translatable("actinium.options.interopEnabled.tooltip"))
-                .impact(OptionImpact.VARIES)
-                .control(new TickBoxControl())
-                .binding(o -> o.interopEnabled, (o, v) -> o.interopEnabled = v)
-                .flags(OptionFlag.REQUIRES_GAME_RESTART)
-                .build();
-
-        return OptionPage.of("vulkanmod.options.pages.other",
-                OptionGroup.of("actinium.options.group.performance",
-                        builderThreads, frameQueue, textureAnimations, animateOnlyVisible),
+        return OptionPage.of("actinium.options.pages.advanced",
+                OptionGroup.of("actinium.options.group.cpu",
+                        frameQueue),
                 OptionGroup.of("actinium.options.group.device",
-                        wayland, device),
-                OptionGroup.of("actinium.options.group.compatibility",
-                        glContextBridge, interopEnabled));
+                        device, wayland));
     }
 
+
+    private static Option<Integer> qualityOption(OptionStorage<Config> storage, String nameKey, String tooltipKey,
+                                                 java.util.function.Function<Config, Integer> getter,
+                                                 java.util.function.BiConsumer<Config, Integer> setter,
+                                                 boolean reloadsTerrain) {
+        OptionImpl.Builder<Config, Integer> builder = OptionImpl.<Config, Integer>of(storage)
+                .name(Component.translatable(nameKey))
+                .tooltip(Component.translatable(tooltipKey))
+                .impact(OptionImpact.MEDIUM)
+                .control(new CyclingControl<>(List.of(0, 2, 1), v -> switch (v) {
+                    case 1 -> Component.translatable("options.graphics.fast");
+                    case 2 -> Component.translatable("options.graphics.fancy");
+                    default -> Component.translatable("actinium.options.quality.default");
+                }))
+                .binding(c -> Math.clamp(getter.apply(c), 0, 2), setter);
+        if (reloadsTerrain) {
+            builder.flags(OptionFlag.REQUIRES_RENDERER_RELOAD);
+        }
+
+        return builder.build();
+    }
 
     private static int percent(double value) {
         return (int) Math.round(value * 100.0);

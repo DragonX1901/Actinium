@@ -2,6 +2,8 @@ package net.vulkanmod.render.vertex;
 
 import net.vulkanmod.vulkan.VRenderSystem;
 import java.util.EnumSet;
+import net.actinium.client.QualitySettings;
+import net.minecraft.client.Minecraft;
 import java.util.function.Function;
 import net.minecraft.client.renderer.RenderType;
 import net.vulkanmod.Initializer;
@@ -55,7 +57,7 @@ public enum TerrainRenderType {
    }
 
    public static void updateMapping() {
-      boolean separateSolid = Initializer.CONFIG.solidEarlyZ;
+      boolean separateSolid = Initializer.CONFIG.solidEarlyZ || !QualitySettings.fancyLeaves(Minecraft.useFancyGraphics());
       if (Initializer.CONFIG.uniqueOpaqueLayer) {
          remapper = renderType -> {
             return switch (renderType) {

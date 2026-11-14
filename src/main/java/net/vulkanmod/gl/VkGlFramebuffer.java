@@ -49,12 +49,20 @@ public class VkGlFramebuffer {
 
    public static void bindFramebuffer(int target, int id) {
       if (id == 0) {
+         if (target == 36008) {
+            readFramebuffer = null;
+            return;
+         }
+
          Renderer.getInstance().endRenderPass();
          if (Renderer.isRecording()) {
             Renderer.getInstance().getMainPass().rebindMainTarget();
          }
 
          boundFramebuffer = null;
+         if (target == 36160) {
+            readFramebuffer = null;
+         }
       } else {
          VkGlFramebuffer glFramebuffer = (VkGlFramebuffer)map.get(id);
          if (glFramebuffer == null) {
@@ -69,8 +77,9 @@ public class VkGlFramebuffer {
             case 36008:
                readFramebuffer = glFramebuffer;
                break;
-            case 36009:
             case 36160:
+               readFramebuffer = glFramebuffer;
+            case 36009:
                if (glFramebuffer.framebuffer != null) {
                   beginRendering(glFramebuffer);
                }
@@ -118,8 +127,30 @@ public class VkGlFramebuffer {
       }
    }
 
+   public static boolean isKnown(int id) {
+      return id == 0 || map.containsKey(id);
+   }
+
    public static void glBlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, int mask, int filter) {
-      ImageUtil.blitFramebuffer(boundFramebuffer.colorAttachment, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1);
+      VkGlFramebuffer source = readFramebuffer != null ? readFramebuffer : boundFramebuffer;
+      VkGlFramebuffer target = boundFramebuffer;
+      if (source == null || target == null || source == target) {
+         return;
+      }
+
+      if ((mask & 0x4000) != 0 && source.colorAttachment != null && target.colorAttachment != null) {
+         ImageUtil.blitRegion(source.colorAttachment, target.colorAttachment, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1,
+               filter == 9729 ? 1 : 0);
+      }
+
+      if ((mask & 0x100) != 0 && source.depthAttachment != null && target.depthAttachment != null
+            && source.depthAttachment.format == target.depthAttachment.format) {
+         ImageUtil.blitRegion(source.depthAttachment, target.depthAttachment, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, 0);
+      }
+
+      if (target.framebuffer != null) {
+         beginRendering(target);
+      }
    }
 
    public static int glCheckFramebufferStatus(int target) {
